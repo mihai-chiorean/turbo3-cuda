@@ -143,3 +143,18 @@ poetry.toml
 /.windsurf/
 # emscripten
 a.out.*
+
+# Environment and credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Model weights (never commit)
+*.safetensors
+*.pt
+*.pth
+
+# Codebook cache
+codebooks/
