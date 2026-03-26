@@ -75,3 +75,29 @@ static __device__ __forceinline__ void dequantize_q8_0(const void * vx, const in
     v.x *= d;
     v.y *= d;
 }
+
+static const __device__ float TURBO3_CENTROIDS_D[8] = {
+    -0.190685f, -0.117832f, -0.065717f, -0.021460f,
+     0.021460f,  0.065717f,  0.117832f,  0.190685f
+};
+
+static __device__ __forceinline__ void dequantize_turbo3_0(const void * vx, const int64_t ib, const int iqs, float2 & v){
+    const block_turbo3_0 * x = (const block_turbo3_0 *) vx;
+    const float norm = __half2float(x[ib].norm);
+
+    const int j0 = iqs * 2;
+    const int j1 = iqs * 2 + 1;
+
+    uint8_t low2_0 = (x[ib].qs[j0 >> 2] >> ((j0 & 3) << 1)) & 0x3;
+    uint8_t hi1_0  = (x[ib].signs[j0 >> 3] >> (j0 & 7)) & 0x1;
+    uint8_t idx0   = low2_0 | (hi1_0 << 2);
+
+    uint8_t low2_1 = (x[ib].qs[j1 >> 2] >> ((j1 & 3) << 1)) & 0x3;
+    uint8_t hi1_1  = (x[ib].signs[j1 >> 3] >> (j1 & 7)) & 0x1;
+    uint8_t idx1   = low2_1 | (hi1_1 << 2);
+
+    v.x = TURBO3_CENTROIDS_D[idx0] * norm;
+    v.y = TURBO3_CENTROIDS_D[idx1] * norm;
+}
+
+#define QR_TURBO3 2

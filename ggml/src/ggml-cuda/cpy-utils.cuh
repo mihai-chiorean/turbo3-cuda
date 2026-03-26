@@ -211,6 +211,59 @@ static __device__ void cpy_blck_f32_iq4_nl(const char * cxi, char * cdsti) {
     quantize_f32_iq4_nl_block((const float *)cxi, (block_iq4_nl *)cdsti);
 }
 
+// TurboQuant 3-bit: norm + nearest centroid packing
+static __device__ void quantize_f32_turbo3_0_block(const float * __restrict__ x, block_turbo3_0 * __restrict__ y) {
+    // 3-bit centroids and midpoints (same as in turbo-quant.cu)
+    const float centroids[8] = {
+        -0.190685f, -0.117832f, -0.065717f, -0.021460f,
+         0.021460f,  0.065717f,  0.117832f,  0.190685f
+    };
+    const float midpoints[7] = {
+        -0.154259f, -0.091775f, -0.043589f, 0.0f,
+         0.043589f,  0.091775f,  0.154259f
+    };
+
+    // Compute L2 norm
+    float norm_sq = 0.0f;
+    for (int j = 0; j < QK_TURBO3; j++) {
+        norm_sq += x[j] * x[j];
+    }
+    float norm = sqrtf(norm_sq);
+    float inv_norm = (norm > 1e-10f) ? (1.0f / norm) : 0.0f;
+
+    y->norm = __float2half(norm);
+    memset(y->qs,    0, QK_TURBO3 / 4);
+    memset(y->signs, 0, QK_TURBO3 / 8);
+
+    for (int j = 0; j < QK_TURBO3; j++) {
+        float val = x[j] * inv_norm;
+
+        // Nearest centroid via midpoint comparisons
+        uint8_t idx = 0;
+        idx += (val >= midpoints[0]);
+        idx += (val >= midpoints[1]);
+        idx += (val >= midpoints[2]);
+        idx += (val >= midpoints[3]);
+        idx += (val >= midpoints[4]);
+        idx += (val >= midpoints[5]);
+        idx += (val >= midpoints[6]);
+
+        // Pack lower 2 bits into qs
+        uint8_t low2 = idx & 0x3;
+        y->qs[j >> 2] |= (low2 << ((j & 3) << 1));
+
+        // Pack upper 1 bit into signs
+        uint8_t hi1 = (idx >> 2) & 0x1;
+        if (hi1) {
+            y->signs[j >> 3] |= (1u << (j & 7));
+        }
+    }
+}
+
+static __device__ void cpy_blck_f32_turbo3_0(const char * cxi, char * cdsti) {
+    quantize_f32_turbo3_0_block((const float *)cxi, (block_turbo3_0 *)cdsti);
+}
+
 template<typename src_t, typename dst_t>
 static __device__ void cpy_1_scalar(const char * cxi, char * cdsti) {
     *(dst_t *) cdsti = ggml_cuda_cast<dst_t>(*(const src_t *) cxi);
