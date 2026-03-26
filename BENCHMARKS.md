@@ -1,7 +1,9 @@
 # Benchmarks — turbo3 CUDA
 
 All benchmarks run on a single NVIDIA RTX 5090 (32GB, sm_120) with CUDA 12.8.
-Model: Qwen3-32B Q6_K (~21GB weights).
+Model: Qwen3.5-27B Q6_K (~21GB weights) — [Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-v2](https://huggingface.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-v2).
+
+Qwen3.5-27B is a **hybrid architecture**: 48 GatedDeltaNet (SSM) layers + 16 GatedAttention layers. Only the 16 attention layers have KV cache (24 Q heads, 4 KV heads, head_dim 256). This gives ~14 KB/token with turbo3.
 
 ## Test Environment
 
@@ -11,7 +13,7 @@ Model: Qwen3-32B Q6_K (~21GB weights).
 | CUDA | 12.8 |
 | Driver | 570.x |
 | OS | Ubuntu 24.04 (WSL2) |
-| Model | Qwen3-32B-Q6_K.gguf |
+| Model | Qwen3.5-27B-Q6_K.gguf (Jackrong/...Reasoning-Distilled-v2) |
 | Fork base | `feature/turboquant-kv-cache` @ `9cd0431` (TheTom/llama-cpp-turboquant) |
 | Build flags | `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120 -DGGML_CUDA_FORCE_CUBLAS=OFF` |
 
@@ -106,7 +108,7 @@ At 524K tokens, turbo3 uses **7.3 GB** for the KV cache where fp16 would need **
 
 ## Comparison: KV Cache Types
 
-All at 524K context, Qwen3-32B Q6_K, RTX 5090:
+All at 524K context, Qwen3.5-27B Q6_K (16 KV layers), RTX 5090:
 
 | KV Cache Type | Bits/Value | KV Size | Fits in 32GB? | Quality |
 |--------------|-----------|---------|---------------|---------|
@@ -127,7 +129,7 @@ cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120 -DGGML_CUDA_FORCE_C
 cmake --build build --config Release -j $(nproc)
 
 # 2. Start server
-./launch_server.sh ./models/Qwen3-32B-Q6_K.gguf 524288
+./launch_server.sh ./models/your-model-Q6_K.gguf 524288
 
 # 3. Wait for model to load
 sleep 30

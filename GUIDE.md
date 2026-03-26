@@ -68,7 +68,7 @@ Set `CMAKE_CUDA_ARCHITECTURES` to match your GPU. You can specify multiple: `-DC
 
 ## 3. Downloading a Model
 
-You need a GGUF model file. Recommended: **Qwen3-32B** in Q6_K quantization for best quality/VRAM balance.
+You need a GGUF model file. The tested model is **Qwen3.5-27B** (hybrid architecture: 16 KV layers), which achieves 700K+ context on a 32GB GPU.
 
 ```bash
 # Install huggingface-cli if needed
@@ -76,30 +76,32 @@ pip install huggingface-hub
 
 # Download a Q6_K model (adjust for your preferred model)
 mkdir -p models
-huggingface-cli download bartowski/Qwen3-32B-GGUF \
-  Qwen3-32B-Q6_K.gguf \
+huggingface-cli download Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-v2-GGUF \
+  Qwen3.5-27B-Q6_K.gguf \
   --local-dir models/
 ```
 
-### Model size vs VRAM budget
-| Quantization | ~Size (32B params) | Remaining VRAM for KV (32GB GPU) |
+### Model size vs VRAM budget (Qwen3.5-27B, 16 KV layers, ~14 KB/token turbo3)
+| Quantization | ~Size (27B params) | Remaining VRAM for KV (32GB GPU) |
 |-------------|-------------------|----------------------------------|
-| Q4_K_M | ~18 GB | ~12.5 GB → ~890K tokens turbo3 |
+| Q4_K_M | ~16 GB | ~14.5 GB → ~1M tokens turbo3 |
 | Q6_K | ~21 GB | ~9.5 GB → ~680K tokens turbo3 |
-| Q8_0 | ~32 GB | ~0 GB (won't fit with long context) |
+| Q8_0 | ~28 GB | ~2.5 GB → ~180K tokens turbo3 |
+
+> **Note:** KV-per-token varies by model. Qwen3.5-27B has only 16 KV layers (hybrid arch), so ~14 KB/token. Standard transformers (e.g. Llama-3.1-70B with 80 layers) use ~70 KB/token.
 
 ## 4. Running the Server
 
 ### Using the launch script (recommended)
 ```bash
 # Basic usage
-./launch_server.sh ./models/Qwen3-32B-Q6_K.gguf
+./launch_server.sh ./models/your-model-Q6_K.gguf
 
 # With custom context
-./launch_server.sh ./models/Qwen3-32B-Q6_K.gguf 262144
+./launch_server.sh ./models/your-model-Q6_K.gguf 262144
 
 # Using environment variables
-export TURBO_MODEL_PATH=./models/Qwen3-32B-Q6_K.gguf
+export TURBO_MODEL_PATH=./models/your-model-Q6_K.gguf
 export TURBO_CONTEXT=524288
 export TURBO_PORT=8080
 ./launch_server.sh
@@ -108,7 +110,7 @@ export TURBO_PORT=8080
 ### Direct invocation
 ```bash
 ./build/bin/llama-server \
-  -m ./models/Qwen3-32B-Q6_K.gguf \
+  -m ./models/your-model-Q6_K.gguf \
   --cache-type-k turbo3 \
   --cache-type-v turbo3 \
   -c 524288 \
@@ -144,7 +146,7 @@ Add to your `models.yml`:
 turbo3-qwen32b:
   api_base: http://YOUR_SERVER_IP:8080/v1
   api_key: ""
-  model: qwen3-32b
+  model: your-model-name
   context_length: 524288
 ```
 
@@ -157,7 +159,7 @@ providers:
     type: openai
     base_url: http://YOUR_SERVER_IP:8080/v1
     api_key: "not-needed"
-    model: qwen3-32b
+    model: your-model-name
 ```
 
 ## 7. Testing
@@ -250,8 +252,8 @@ Max_tokens = Available_KV / (2 × n_layers × n_kv_heads × head_dim × 14/32)
 | | Q4_K_M | Q6_K |
 |---|--------|------|
 | Model quality | Good | Better |
-| Model size (32B) | ~18 GB | ~21 GB |
-| Max turbo3 context (32GB GPU) | ~890K | ~680K |
+| Model size (27B) | ~16 GB | ~21 GB |
+| Max turbo3 context (32GB GPU) | ~1M | ~680K |
 | Best for | Maximum context | Best quality |
 
 ### Multi-GPU
@@ -269,10 +271,10 @@ The per-token KV cost depends on your model's architecture. Check `n_layers`, `n
 
 ### Examples
 
-**Qwen3-32B Q6_K on RTX 5090 (32GB):**
+**Qwen3.5-27B Q6_K on RTX 5090 (32GB):**
 - Model weights: ~21 GB
 - Available for KV: 32 - 21 - 1.5 = 9.5 GB
-- Measured KV per token: ~14 KB (turbo3)
+- KV per token: `2 × 16 × 4 × 256 × 0.4375 = 14 KB` (16 KV layers, 4 heads, 256 dim)
 - Max context: 9.5 GB / 14 KB ≈ **~680K tokens**
 
 **Llama-3.1-70B Q4_K_M on 2× RTX 5090 (64GB):**

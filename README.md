@@ -4,6 +4,8 @@ The first CUDA implementation of TurboQuant turbo3 KV cache compression with Fla
 
 Compresses the KV cache to **3.5 bits per value** (4.6× vs fp16) with near-zero quality loss, enabling **700K+ token context on a single RTX 5090** (32GB).
 
+Tested with **Qwen3.5-27B** ([Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-v2](https://huggingface.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-v2)), a hybrid architecture with 48 GatedDeltaNet (SSM) layers + 16 GatedAttention layers — only the 16 attention layers use KV cache.
+
 ## What This Is
 
 A fork of [TheTom/llama-cpp-turboquant](https://github.com/TheTom/llama-cpp-turboquant) (which itself forks [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)) that adds **CUDA GPU support** for the `turbo3` KV cache type. TheTom's original implementation had Metal (Apple Silicon) kernels only — this port brings full CUDA support including Flash Attention integration.
@@ -68,7 +70,7 @@ TURBO_MODEL_PATH=./models/your-model.gguf ./launch_server.sh
 
 ## VRAM Budget
 
-Measured on Qwen3-32B Q6_K (~21 GB weights), RTX 5090 32GB:
+Measured with Qwen3.5-27B Q6_K (~21 GB weights) on RTX 5090 32GB:
 
 | Component | Size |
 |-----------|------|
@@ -81,10 +83,14 @@ Measured on Qwen3-32B Q6_K (~21 GB weights), RTX 5090 32GB:
 **VRAM formula:**
 
 ```
-KV_per_token = 2 × n_layers × n_kv_heads × head_dim × (14 / 32)
+KV_per_token = 2 × n_kv_layers × n_kv_heads × head_dim × (14 / 32)
 ```
 
-The per-token cost depends on your model's architecture (`n_layers`, `n_kv_heads`, `head_dim`). For the Qwen3-32B tested here, measured KV consumption is **~14 KB/token** with turbo3, vs ~64 KB/token with fp16 — a 4.6× reduction.
+The per-token cost depends on your model's architecture. `n_kv_layers` is the number of layers that have a KV cache — for hybrid models like Qwen3.5-27B, only 16 of 64 layers are standard attention (the other 48 are GatedDeltaNet/SSM with fixed-size state).
+
+**Qwen3.5-27B example:** `2 × 16 × 4 × 256 × 0.4375 = 14,336 bytes ≈ 14 KB/token` (vs ~64 KB with fp16 — 4.6× reduction)
+
+> **Note:** For standard transformer models (e.g. Llama-3.1), all layers have KV cache, so `n_kv_layers = n_layers`.
 
 ## Files Modified (CUDA Port)
 

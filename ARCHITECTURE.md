@@ -67,6 +67,17 @@ value = centroid[idx] × norm
 
 Where `norm` is the L2 norm of the original 128-element group (stored per-block as fp16, shared across 4 blocks in the same group).
 
+### Hybrid architecture implications
+
+turbo3 compression only applies to layers with a KV cache. For **Qwen3.5-27B** (the tested model), only **16 of 64 layers** are standard GatedAttention layers with KV cache. The other 48 layers are GatedDeltaNet (SSM-like, linear attention) which use a fixed-size recurrent state regardless of context length.
+
+This means the per-token KV cost for Qwen3.5-27B is:
+```
+KV_per_token = 2 × 16 layers × 4 KV heads × 256 head_dim × (14/32) = 14,336 bytes ≈ 14 KB
+```
+
+For standard transformer models where all layers have KV cache (e.g. Llama-3.1-70B with 80 layers), the per-token cost is proportionally larger. The turbo3 compression ratio (4.6×) applies equally regardless of architecture.
+
 ## 2. FWHT Rotation
 
 ### Why rotation is needed
