@@ -68,19 +68,23 @@ TURBO_MODEL_PATH=./models/your-model.gguf ./launch_server.sh
 
 ## VRAM Budget
 
+Measured on Qwen3-32B Q6_K (~21 GB weights), RTX 5090 32GB:
+
 | Component | Size |
 |-----------|------|
-| Model weights (Q6_K 27B) | ~21 GB |
+| Model weights (Q6_K) | ~21 GB |
 | KV cache turbo3 (per 100K tokens) | ~1.4 GB |
 | CUDA overhead | ~1.5 GB |
-| **Total at 524K context** | **~29 GB** |
-| **Total at 700K context** | **~31.5 GB** |
+| **Total at 524K context** | **~29.8 GB** |
+| **Total at 700K context** | **~32.3 GB** |
 
-**VRAM formula:** `KV_bytes = 2 × n_layers × n_heads × head_dim × n_tokens × 14/32`
+**VRAM formula:**
 
-For Qwen3-32B (64 layers, 8 KV heads, 128 head_dim):
-- Per token: `2 × 64 × 8 × 128 × (14/32) = ~57 KB`
-- At 524K tokens: `~7.2 GB` (vs ~33 GB with fp16)
+```
+KV_per_token = 2 × n_layers × n_kv_heads × head_dim × (14 / 32)
+```
+
+The per-token cost depends on your model's architecture (`n_layers`, `n_kv_heads`, `head_dim`). For the Qwen3-32B tested here, measured KV consumption is **~14 KB/token** with turbo3, vs ~64 KB/token with fp16 — a 4.6× reduction.
 
 ## Files Modified (CUDA Port)
 

@@ -144,7 +144,7 @@ void dequantize_row_turbo3_0_bf16_nc_cuda(
 //  Ported from Metal kernel_turbo_wht (ggml-metal.metal line 3018)
 //  and CPU ggml_compute_forward_turbo_wht_f32 (ops.cpp line 10594).
 //
-//  Each CUDA block (128 threads) processes one 128-element group.
+//  Each CUDA thread processes one 128-element group (256 threads/block).
 //  direction=0: forward (signs1 -> FWHT -> signs2)
 //  direction=1: inverse (signs2 -> FWHT -> signs1)
 // ═══════════════════════════════════════════════════════════════════════

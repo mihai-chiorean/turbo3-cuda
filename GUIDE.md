@@ -260,23 +260,23 @@ Not yet tested. llama.cpp supports tensor splitting across GPUs — should work 
 ## 10. VRAM Calculator
 
 ```
-KV_per_token = 2 × n_layers × n_kv_heads × head_dim × (14/32)
-             = 2 × n_layers × n_kv_heads × head_dim × 0.4375 bytes
-
+KV_per_token = 2 × n_layers × n_kv_heads × head_dim × (14 / 32)
 Available_KV = GPU_VRAM - Model_Size - 1.5 GB
 Max_tokens   = Available_KV / KV_per_token
 ```
 
+The per-token KV cost depends on your model's architecture. Check `n_layers`, `n_kv_heads`, and `head_dim` from the model's config (printed in llama-server startup logs).
+
 ### Examples
 
-**Qwen3-32B on RTX 5090 (32GB):**
-- Q6_K weights: 21 GB
+**Qwen3-32B Q6_K on RTX 5090 (32GB):**
+- Model weights: ~21 GB
 - Available for KV: 32 - 21 - 1.5 = 9.5 GB
-- Per token: 2 × 64 × 8 × 128 × 0.4375 = 57,344 bytes ≈ 56 KB
-- Max context: 9.5 GB / 56 KB ≈ **~170K tokens** per KV, but turbo3 compresses to ~14 KB/token → **~680K tokens**
+- Measured KV per token: ~14 KB (turbo3)
+- Max context: 9.5 GB / 14 KB ≈ **~680K tokens**
 
-**Llama-3.1-70B on 2× RTX 5090 (64GB):**
-- Q4_K_M weights: ~38 GB
+**Llama-3.1-70B Q4_K_M on 2× RTX 5090 (64GB):**
+- Model weights: ~38 GB
 - Available for KV: 64 - 38 - 3 = 23 GB
-- 80 layers, 8 KV heads, 128 head_dim
-- Max context: ~1.6M tokens (theoretical)
+- Estimated KV per token: ~70 KB (turbo3, 80 layers × 8 KV heads × 128 dim)
+- Max context: 23 GB / 70 KB ≈ **~340K tokens**

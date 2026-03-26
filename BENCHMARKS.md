@@ -12,6 +12,7 @@ Model: Qwen3-32B Q6_K (~21GB weights).
 | Driver | 570.x |
 | OS | Ubuntu 24.04 (WSL2) |
 | Model | Qwen3-32B-Q6_K.gguf |
+| Fork base | `feature/turboquant-kv-cache` @ `9cd0431` (TheTom/llama-cpp-turboquant) |
 | Build flags | `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120 -DGGML_CUDA_FORCE_CUBLAS=OFF` |
 
 ## Quality Tests
@@ -78,17 +79,16 @@ print(json.dumps(msg))
 
 ## Throughput
 
-Measured via server `/metrics` endpoint during continuous generation.
+Generation speed measured via server `/metrics` endpoint.
 
-| Context Size | Prompt Processing (tok/s) | Generation (tok/s) |
-|-------------|--------------------------|-------------------|
-| 4K | ~2,500 | ~52 |
-| 32K | ~2,200 | ~51 |
-| 128K | ~1,800 | ~50 |
-| 256K | ~1,400 | ~49 |
-| 524K | ~900 | ~48 |
+| Context Size | Generation (tok/s) |
+|-------------|-------------------|
+| 4K–64K | 47–50 |
+| 524K | ~48 |
 
 Generation speed remains remarkably stable across context sizes because Flash Attention keeps the per-token compute O(n) in sequence length, and turbo3's smaller KV cache reduces memory bandwidth pressure.
+
+> **Note:** Prompt processing speed depends heavily on batch size and prompt length. Run your own benchmarks with representative workloads.
 
 ## VRAM Usage
 
