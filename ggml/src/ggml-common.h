@@ -278,8 +278,9 @@ typedef struct {
     ggml_half  norm;                    //  2 bytes: vector L2 norm (for rescaling)
     uint8_t    qs[QK_TURBO3 / 4];      //  8 bytes: lower 2-bit indices (4 per byte)
     uint8_t    signs[QK_TURBO3 / 8];   //  4 bytes: upper 1-bit of 3-bit index (8 per byte)
-} block_turbo3_0;                       // 14 bytes total
-static_assert(sizeof(block_turbo3_0) == sizeof(ggml_half) + QK_TURBO3/4 + QK_TURBO3/8, "wrong turbo3_0 block size/padding");
+    uint8_t    pad[2];                  //  2 bytes: padding for 16-byte GDDR7 alignment
+} block_turbo3_0;                       // 16 bytes total (was 14)
+static_assert(sizeof(block_turbo3_0) == 16, "turbo3_0 block must be 16 bytes for GDDR7 alignment");
 
 // TurboQuant 4-bit: 3-bit PolarQuant indices + 1-bit QJL signs
 // Per block: norm(fp16) + residual_norm(fp16) + 3-bit indices (48 bytes) + 1-bit signs (16 bytes)
