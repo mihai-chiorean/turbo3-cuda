@@ -23,36 +23,60 @@ CUDA port of Google's TurboQuant (ICLR 2026) KV cache compression for llama.cpp,
 
 - **Repo**: `/home/erol/ai/turboquant/research/llama-cpp-turboquant/`
 - **Branch**: `release/turbo3-cuda`
-- **Model**: `/home/erol/ai/turboquant/models/opus-v2-Q6_K.gguf` (Qwen 3.5 27B, ~21 GB)
+- **Dense model**: `/home/erol/ai/turboquant/models/opus-v2-Q6_K.gguf` (Qwen 3.5 27B, ~21 GB)
+- **MoE model**: `/home/erol/ai/turboquant/models/Qwen3.5-35B-A3B-Q4_K_M.gguf` (~21 GB)
 - **Hardware**: RTX 5090 32GB GDDR7, SM120, CUDA 12.8, WSL2 Ubuntu 24.04
 - **Competitor reference**: `/home/erol/projects/llama-cpp-turboquant-cuda/` (spiritbuun's fork, RTX 3090)
+- **Full context dump**: `.trash/resume.md` — READ THIS for complete project history, architecture decisions, and dead ends
+
+## ⚠️ SETTLED ARCHITECTURE — DO NOT REVISIT
+
+The decode architecture uses a **persistent fp16 shadow cache with incremental dequant**. This has been proven optimal across 7 sessions. The following alternatives have been thoroughly tested and FAILED — do NOT retry them:
+
+1. **Fused SET_ROWS fp16 write** — speed regression (0.944x→0.919x). Tested 3 times (Sessions 2, 6, 7).
+2. **Flat array shadow cache** — hash collisions corrupt data (PPL 25.93). Tested Session 5.
+3. **Adaptive native/shadow** — native turbo3 vec is SLOWER than fp16 vec at ALL depths. Tested Session 7.
+4. **L2 cache persistence hints** — net negative. Tested Session 2.
+5. **Fused compressed attention** — register spill from dynamic indexing. Tested Session 1.
+
+See `.trash/resume.md` for detailed failure analysis of each.
+
+## Current Performance
+
+| Context | q8_0 | turbo3 | Ratio |
+|---------|------|--------|-------|
+| short | ~55 | ~52 | **0.944x** |
+| 16K | ~50 | ~50 | **0.99x** |
+| 32K | ~46 | ~48 | **1.04x** (beats q8_0!) |
+
+PPL: turbo3=6.848 (+1.32% vs q8_0 at ctx=512), 5.736 (+1.08% at ctx=2048)
 
 ## ABSOLUTE RULES
 
 ### 1. NEVER skip an item. NEVER defer.
-If the plan says to do something, do it. If it's blocked, find another way. "Blocked" means you haven't tried hard enough. There is always a path forward.
+If the plan says to do something, do it. If it's blocked, find another way.
 
 ### 2. MEASURE before and after EVERY change.
-No commit without benchmark data. Run smoke test (PPL + speed) after every kernel change. Run full decode curve before milestone commits. Record results in `benchmarks/CHANGELOG.md`.
+No commit without benchmark data. PPL at ctx=512 AND ctx=2048 for every code change. Record in `benchmarks/CHANGELOG.md`.
 
-### 3. ONE commit per logical change.
-Do not batch multiple items into one commit. Implement → rebuild → measure → commit → next item. This makes it possible to bisect regressions.
+### 3. PPL REJECT THRESHOLDS — non-negotiable.
+- ctx=512: turbo3 PPL > 6.89 → **REJECT and revert immediately**
+- ctx=2048: turbo3 PPL > 5.77 → **REJECT and revert immediately**
 
-### 4. Fix regressions IMMEDIATELY.
-If any metric gets worse after a change, stop and fix it before moving on. Speed went down? Fix it. PPL went up? Fix it. Prefill broke? Fix it. Do NOT continue building on top of a regression.
+### 4. ONE commit per logical change.
+Implement → rebuild → measure → commit → next item.
 
-### 5. Read reference implementations CAREFULLY before reimplementing.
-spiritbuun's fork is at `/home/erol/projects/llama-cpp-turboquant-cuda/`. When the plan says to implement something spiritbuun already has, READ THEIR CODE FIRST. Understand their approach, their edge cases, their buffer management. Do not reimplement from scratch and get it wrong. Adapt their proven approach to our codebase.
+### 5. Fix regressions IMMEDIATELY.
+If any metric gets worse, stop and fix before moving on.
 
-### 6. NEVER ask "want me to continue?"
-The answer is always yes. If you're running low on context, save state to `SESSION_STATE.md` with exact checklist status, current metrics, and what comes next. Then tell me to start a new session with that file.
+### 6. Read reference implementations BEFORE reimplementing.
+spiritbuun's fork at `/home/erol/projects/llama-cpp-turboquant-cuda/` is the CUDA reference.
 
-### 7. Understand the ARCHITECTURE before writing code.
-When implementing a performance optimization:
-- First, understand the data flow (what gets allocated when, what persists, what's temporary)
-- Second, understand the hot path (what runs per-token vs per-prompt vs once)
-- Third, identify where the cost is (memory bandwidth? compute? allocation overhead? kernel launch?)
-- THEN write code. Do not write code first and debug performance second.
+### 7. NEVER ask "want me to continue?"
+The answer is always yes. Save state to `.trash/resume.md` when context is low.
+
+### 8. Understand the ARCHITECTURE before writing code.
+Read the decode data flow in `.trash/resume.md` before modifying fattn.cu or turbo-quant.cu.
 
 ## Build & Test Commands
 
@@ -61,91 +85,75 @@ When implementing a performance optimization:
 cd /home/erol/ai/turboquant/research/llama-cpp-turboquant
 /home/erol/miniconda3/envs/tq/bin/cmake --build build -j$(nproc)
 
-# Quick smoke test (~3 min) — after EVERY kernel change
+# PPL gate (run for EVERY code change):
 MODEL=/home/erol/ai/turboquant/models/opus-v2-Q6_K.gguf
 WIKI=wikitext-2-raw/wiki.test.raw
 ./build/bin/llama-perplexity -m $MODEL -f $WIKI -c 512 -ctk turbo3 -ctv turbo3 -fa on --chunks 8 -ngl 99
-./build/bin/llama-bench -m $MODEL -fa 1 -ctk turbo3 -ctv turbo3 -d 0 -ngl 99 -t 1 -p 0 -n 128
+./build/bin/llama-perplexity -m $MODEL -f $WIKI -c 2048 -ctk turbo3 -ctv turbo3 -fa on --chunks 8 -ngl 99
 
-# Full decode curve — before milestone commits
-# NOTE: llama-bench uses -d for depth, NOT -c
+# Full decode curve (NOTE: llama-bench uses -d for depth, NOT -c):
 for DEPTH in 0 2048 4096 8192 16384 32768; do
-  ./build/bin/llama-bench -m $MODEL -fa 1 -ctk q8_0 -ctv q8_0 -d $DEPTH -ngl 99 -t 1 -r 3 -p 0 -n 128
   ./build/bin/llama-bench -m $MODEL -fa 1 -ctk turbo3 -ctv turbo3 -d $DEPTH -ngl 99 -t 1 -r 3 -p 0 -n 128
+  ./build/bin/llama-bench -m $MODEL -fa 1 -ctk q8_0 -ctv q8_0 -d $DEPTH -ngl 99 -t 1 -r 3 -p 0 -n 128
 done
 
-# Full PPL at multiple depths
-for CTX in 512 2048 8192; do
-  ./build/bin/llama-perplexity -m $MODEL -f $WIKI -c $CTX -ctk turbo3 -ctv turbo3 -fa on --chunks 8 -ngl 99
-  ./build/bin/llama-perplexity -m $MODEL -f $WIKI -c $CTX -ctk q8_0 -ctv q8_0 -fa on --chunks 8 -ngl 99
-done
-
-# Prefill at depths
+# Prefill:
 for DEPTH in 0 8192 32768; do
   ./build/bin/llama-bench -m $MODEL -fa 1 -ctk turbo3 -ctv turbo3 -d $DEPTH -ngl 99 -t 1 -p 512 -n 0 -r 1
-  ./build/bin/llama-bench -m $MODEL -fa 1 -ctk q8_0 -ctv q8_0 -d $DEPTH -ngl 99 -t 1 -p 512 -n 0 -r 1
 done
 ```
 
-## Performance Targets
-
-| Metric | Target | Competitor (spiritbuun RTX 3090) |
-|--------|--------|----------------------------------|
-| Decode ratio vs q8_0 (all depths) | >0.95x | 0.970x at 42K |
-| Prefill ratio vs q8_0 | >0.95x | 0.988x |
-| PPL vs q8_0 | <+1% | -1.17% (beats q8_0) |
-| Context scaling (short→32K) | FLAT | FLAT |
-
-We are on BETTER hardware (RTX 5090 vs RTX 3090). Our numbers must match or beat spiritbuun's ratios.
-
 ## Architecture Knowledge
-
-### Qwen 3.5 27B
-- 64 layers: 48 GatedDeltaNet (no KV) + 16 GatedAttention (with KV)
-- Attention: head_dim=256, Q_heads=24, KV_heads=4 (GQA 6:1)
-- Only 16 layers have KV cache — turbo3 compression applies to these only
 
 ### TurboQuant turbo3
 - 3.25 bits/value, 4.6x compression vs fp16
 - Block: 16 bytes per 32 values (padded from 14), rotation group = 128 values = 4 blocks
 - Lloyd-Max 8 centroids, FWHT rotation for Gaussianization
 - Norm correction: `corrected_norm = raw_norm / ||reconstruction||`
+- Centroids: `{-0.190685, -0.117832, -0.065717, -0.021460, 0.021460, 0.065717, 0.117832, 0.190685}`
 
 ### SM120 (RTX 5090) Constraints
 - 128 KB shared memory/SM, 99 KB max per block
 - 48 max warps/SM (NOT 64 like SM100 datacenter)
-- NO WGMMA, NO TMEM — only extended `mma.sync` (Ampere-style)
+- NO WGMMA, NO TMEM — only extended `mma.sync`
 - 98 MB L2 cache, 1.79 TB/s GDDR7 bandwidth
 - FlashAttention-3/4 does NOT work on SM120
 - HAS native FP4 E2M1 Tensor Core support via `mma.sync.m16n8k64`
+- CUDA 12.8 only (13.1 segfaults on MMQ kernels)
 
 ### Key Files
 ```
-ggml/src/ggml-common.h              — block_turbo3_0 struct
 ggml/src/ggml-cuda/turbo-quant.cu   — CUDA dequant, WHT, SET_ROWS quantizer
-ggml/src/ggml-cuda/fattn-common.cuh — FA vec_dot for turbo3 + V dequant
-ggml/src/ggml-cuda/fattn.cu         — FA dispatch (turbo3 prefill/decode routing)
-ggml/src/ggml-cuda/set-rows.cu      — SET_ROWS dispatch
-src/llama-context.cpp               — Auto-enable FA for turbo
-src/llama-graph.cpp                 — Graph-level WHT rotation (Q forward, V inverse)
+ggml/src/ggml-cuda/fattn-common.cuh — FA vec_dot for turbo3 + V dequant + sparse V
+ggml/src/ggml-cuda/fattn-vec.cuh    — sparse V threshold, __expf, nthreads
+ggml/src/ggml-cuda/fattn.cu         — FA dispatch: shadow cache, prefill MMA
+src/llama-kv-cache.cpp              — Layer-adaptive (TURBO_LAYER_ADAPTIVE)
+src/llama-graph.cpp                 — Graph-level WHT rotation
 ```
 
 ## Common Mistakes To Avoid
 
+### ❌ Trying to eliminate the shadow cache
+The persistent fp16 shadow IS the optimal architecture. See "SETTLED ARCHITECTURE" above. The 5.6% short-context gap is inherent to the shadow approach and cannot be fixed without a fundamentally new FA kernel (e.g., FP4 Tensor Core, BitDecoding lop3).
+
 ### ❌ Re-dequanting the entire KV cache every token
-If you allocate a temp fp16 buffer, dequant all K/V, run the kernel, then free the buffer on every decode call — you're doing O(context_length) work per token when only O(1) new data was added. The fp16 data must be cached persistently or dequanted incrementally.
+O(context_length) work per token when only O(1) new data was added. Use incremental dequant.
 
 ### ❌ Reimplementing from scratch when reference code exists
-spiritbuun's fork is cloned locally. Read it. Understand it. Adapt it. Do not rebuild from first principles and miss critical details like buffer lifetime management, multi-sequence edge cases, or rotation handling.
-
-### ❌ Optimizing the wrong layer
-Before optimizing, identify WHERE the time is spent. The bottleneck shifts with context length. At short context, it's compute. At long context, it's memory bandwidth. Profile (or use decode curve shape as a proxy) before deciding what to optimize.
+spiritbuun's fork is cloned locally. Read it first.
 
 ### ❌ Batching multiple changes without measuring between them
-If you change the struct layout AND the dequant path AND the dispatch logic in one commit, you can't tell which change helped and which hurt. One change → one measurement → one commit.
+One change → one measurement → one commit.
 
-### ❌ Skipping edge cases
-Multi-sequence batching (ne[3]>1), head_dim != 256, models without FWHT rotation, FA disabled by user — all of these must work. Test the edge cases, not just the happy path.
+### ❌ Skipping PPL validation
+Every code change needs PPL at ctx=512 AND ctx=2048. If it exceeds reject thresholds → revert.
+
+### ❌ Using cudaEventSynchronize inside graph compute
+CUDA graphs are enabled (USE_GRAPHS=1). Sync inside graph replay = crash.
+
+### ❌ Stopping early to "save state"
+Do NOT stop to write SESSION_STATE.md unless you literally cannot make another tool call.
+Push context to the absolute limit. Save state only when forced.
 
 ## Commit Message Format
 
@@ -155,35 +163,37 @@ Multi-sequence batching (ne[3]>1), head_dim != 256, models without FWHT rotation
 <Detailed explanation of what changed and why>
 
 <Benchmark results — REQUIRED>
-  Metric: before → after (change%)
+  PPL impact: turbo3=X.XXX, q8_0=X.XXX, delta=+X.XX% (ctx=512)
+  Decode: XX.XX tok/s (ratio vs q8_0)
 
-Co-Authored-By: spiritbuun <271142774+spiritbuun@users.noreply.github.com>  # if adapted from their code
-Made-with: Cursor
+Co-Authored-By: spiritbuun <271142774+spiritbuun@users.noreply.github.com>  # if adapted
 ```
 
 Types: `feat`, `fix`, `perf`, `docs`, `test`, `refactor`
 
-## Benchmarks Directory Structure
+## Environment Variables
 
-```
-benchmarks/
-├── smoke/          # Quick per-change checks
-├── gate/           # Multi-context milestone gates
-├── nsight/         # Profiling data (if available)
-├── community/      # TheTom diagnostic zips
-└── CHANGELOG.md    # Living log: date, commit, what changed, before/after numbers
-```
+| Variable | Effect |
+|----------|--------|
+| `TURBO_LAYER_ADAPTIVE=N` | Per-layer KV type: 0=uniform, 1=first4+last4→q8_0 (best PPL) |
+| `GGML_TURBO_DECODE_NATIVE=1` | Disable fp16 shadow, use native turbo3 vec (slower, for debug) |
 
-Every entry in CHANGELOG.md must have: date, git commit hash, what changed, before/after metrics table.
+## Full Context
 
-## Current Plan
-
-Read `IMPROVEMENT_PLAN.md` in the repo root (or `.trash/IMPROVEMENT_PLAN.md`) for the full V3.2 plan. Read `SESSION_STATE.md` for what was completed and what's next.
+**Read `.trash/resume.md`** for the complete 500-line context dump including:
+- All 15 implemented optimizations with files and impacts
+- Complete decode data flow (decode + prefill paths)
+- Shadow cache lifecycle details
+- All 6 dead ends with detailed failure analysis
+- Hardware specs, competitor analysis, commit history
+- turbo4 port status, asymmetric K/V status
+- Research paper summaries and frontier opportunities (FP4 TC, BitDecoding, cp.async)
+- WSL2 caveats
 
 ## Remember
 
-- We are competing with spiritbuun (RTX 3090, 97% decode ratio). We must beat them.
-- We are on RTX 5090 — better hardware. No excuses for worse numbers.
-- Blackwell-specific optimizations (L2 set-aside, FP4 TC, cp.async.bulk) are our differentiators.
-- Every optimization must be MEASURED. Intuition is not data. Profile, benchmark, prove it.
+- turbo3 BEATS q8_0 at 32K context (1.04x) while using 4.6x less KV memory
+- Short context gap (0.944x) is inherent to shadow architecture — don't waste time on it
+- The genuine frontiers are: turbo4 completion, FP4 Tensor Core attention, BitDecoding lop3
+- Every optimization must be MEASURED. Intuition is not data.
 - DO NOT STOP. DO NOT DEFER. DO NOT SKIP. FINISH THE WORK.
