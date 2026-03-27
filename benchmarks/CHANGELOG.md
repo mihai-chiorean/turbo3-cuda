@@ -102,3 +102,41 @@ Context scaling: 0.867x → 0.630x (ratio drops 27% from short to 32K)
 Quality within 2% target at all depths. Best at 2K context (+0.4%).
 
 ---
+
+## After Padding + Register LUT (2026-03-27)
+
+**Commits**: `2f5fafb93` (16B padding) + `36a97a61f` (register LUT + batched bytes)
+
+### Decode Curve (tg128 tok/s)
+
+| Context | Original | +Padding | +Reg LUT | Total improvement |
+|---------|----------|----------|----------|------------------|
+| short | 51.49 | 52.10 | 52.59 | **+2.1%** |
+| 2K | 51.61 | 52.65 | 52.72 | **+2.2%** |
+| 4K | 50.02 | 52.48 | 52.87 | **+5.7%** |
+| 8K | 47.32 | 49.55 | 49.73 | **+5.1%** |
+| 16K | 41.76 | 45.36 | 45.83 | **+9.7%** |
+| 32K | 34.47 | 38.51 | 39.30 | **+14.0%** |
+
+### turbo3/q8_0 Ratio
+
+| Context | Before | After | Delta |
+|---------|--------|-------|-------|
+| short | 0.867x | 0.885x | +0.018 |
+| 4K | 0.833x | 0.881x | +0.048 |
+| 8K | 0.798x | 0.838x | +0.040 |
+| 16K | 0.731x | 0.802x | +0.071 |
+| 32K | 0.630x | 0.719x | +0.089 |
+
+### Prefill
+
+turbo3 pp512 = 1974 tok/s, q8_0 pp512 = 3062 tok/s → 0.645x.
+Prefill regressed from baseline (~97-106% parity) due to FA dispatch fix forcing
+vec-only kernel. MMA kernel was faster but produced wrong results (NaN PPL).
+Item 2.2 (dequant-then-MMA prefill) would address this.
+
+### PPL
+
+Unchanged at 6.867 (turbo3) vs 6.759 (q8_0) = +1.6%.
+
+---
