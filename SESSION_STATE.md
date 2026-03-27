@@ -1,37 +1,48 @@
-# Session State — TurboQuant CUDA (Madreag/turbo3-cuda)
+# Session State — TurboQuant CUDA
 
 **Last updated**: 2026-03-28 Session 4
 **Branch**: `release/turbo3-cuda`
-**Latest commit**: `291d29a04` (README update)
-**Pushed to GitHub**: Yes (https://github.com/Madreag/turbo3-cuda)
+**Latest commit**: `af8d95992`
+**GitHub**: https://github.com/Madreag/turbo3-cuda (pushed)
 
-## Current Performance
+## Performance (DEFINITIVE, stable 3-rep)
 
 ### Decode (turbo3 vs q8_0)
-| Context | Ratio | Status |
-|---------|-------|--------|
-| short | 0.942x | 5.8% gap |
-| 8K | 0.951x | TARGET HIT |
-| 16K | 0.992x | Near parity |
-| 32K | 1.063x | BEATS q8_0! |
+| Context | q8_0 | turbo3 | Ratio |
+|---------|------|--------|-------|
+| short | 58.60 | 55.18 | 0.942x |
+| 8K | 53.66 | 51.04 | 0.951x |
+| 16K | 50.26 | 49.85 | 0.992x |
+| 32K | 45.29 | 48.15 | **1.063x** |
 
-### Other
-- Prefill: 0.977x (target hit)
-- PPL: +1.41% uniform, +0.67% with LA-1
+### Prefill: 0.977x | PPL: +1.41% uniform, +0.67% LA-1
+
+## Key Optimizations (all committed)
+1. Persistent fp16 shadow cache (incremental dequant)
+2. Sparse V dequant (skip weight < 1e-6)
+3. Layer-adaptive KV (TURBO_LAYER_ADAPTIVE)
+4. Norm correction, 16-byte padding, register LUT
+5. Prefill dequant+MMA
 
 ## Session 4 Completed
-- [x] Online research (RotorQuant, FP4 SM120, spiritbuun sparse V)
-- [x] Research findings written to .trash/RESEARCH_FINDINGS.md
-- [x] Confirmed shadow > native at ALL depths
-- [x] README rewritten with full benchmarks
+- [x] Online research (RotorQuant, FP4 SM120, spiritbuun updates)
+- [x] README rewritten with benchmarks
 - [x] Pushed to GitHub
-- [x] TheTom diagnostic running
+- [x] TheTom diagnostic running (background)
+- [x] Tested 1e-4 threshold (PPL improved but benchmarks unstable due to diagnostic running)
+- [x] Confirmed shadow beats native at ALL depths
 
-## In Progress
-- TheTom Tier 3 diagnostic (running in background)
+## What's Left
+1. Wait for diagnostic to finish, commit zip
+2. turbo4 end-to-end debugging (convert.cu wiring)
+3. Try fusing dequant into SET_ROWS for short-context improvement
+4. FP4 Tensor Core research (SM120 mma.sync.m16n8k64)
+5. Post results to llama.cpp discussion #20969
 
-## What's Next
-1. Commit diagnostic results when done
-2. Try more aggressive sparse V threshold (1e-4 instead of 1e-6)
-3. Investigate short-context improvement approaches
-4. turbo4 end-to-end debugging (convert.cu, ggml-cuda.cu wiring)
+## Continuation Prompt
+> Continue TurboQuant CUDA. Read SESSION_STATE.md.
+> Branch: release/turbo3-cuda, pushed to GitHub.
+> turbo3 beats q8_0 at 32K (1.063x). Short context at 0.942x.
+> TheTom diagnostic may still be running — check background process.
+> Next: commit diagnostic, try fusing dequant into SET_ROWS, turbo4 debug.
+> spiritbuun ref: /home/erol/projects/llama-cpp-turboquant-cuda/
