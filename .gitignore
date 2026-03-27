@@ -158,3 +158,15 @@ a.out.*
 
 # Codebook cache
 codebooks/
+
+# Research artifacts
+.trash/
+
+# Benchmarks (data files, not scripts)
+benchmarks/nsight/
+benchmarks/ppl/
+benchmarks/speed/
+benchmarks/smoke/
+benchmarks/gate/
+benchmarks/community/
+*.ncu-rep
