@@ -26,6 +26,68 @@ static __constant__ float TURBO3_CENTROIDS_C[8] = {
      0.021460f,  0.065717f,  0.117832f,  0.190685f
 };
 
+static __constant__ float TURBO3_MIDPOINTS_C[7] = {
+    -0.154259f, -0.091775f, -0.043589f, 0.0f,
+     0.043589f,  0.091775f,  0.154259f
+};
+
+// QJL sign arrays for turbo4 cross-space residual (seed=1042)
+static __constant__ float d_turbo_qjl_signs1[128] = {
+     1,-1,-1,-1,-1, 1,-1, 1, 1,-1,-1, 1,-1, 1,-1, 1,
+     1,-1, 1,-1,-1,-1, 1, 1,-1, 1, 1,-1, 1,-1,-1, 1,
+     1, 1, 1, 1,-1,-1, 1, 1,-1, 1,-1,-1, 1,-1, 1, 1,
+     1,-1, 1, 1, 1,-1,-1, 1,-1, 1,-1, 1, 1,-1, 1, 1,
+    -1,-1,-1, 1, 1, 1, 1, 1, 1,-1,-1, 1, 1,-1,-1,-1,
+    -1,-1, 1, 1, 1, 1,-1, 1, 1,-1, 1, 1, 1, 1, 1, 1,
+     1,-1, 1,-1,-1, 1,-1,-1,-1,-1, 1,-1, 1, 1, 1,-1,
+    -1, 1,-1, 1, 1, 1,-1,-1, 1,-1,-1,-1,-1,-1,-1,-1
+};
+
+static __constant__ float d_turbo_qjl_signs2[128] = {
+     1, 1,-1, 1, 1,-1, 1, 1,-1,-1, 1, 1, 1,-1, 1, 1,
+    -1,-1,-1, 1,-1, 1, 1, 1,-1, 1,-1,-1,-1,-1, 1, 1,
+    -1,-1, 1,-1, 1, 1,-1,-1,-1,-1,-1, 1, 1, 1, 1, 1,
+     1, 1, 1, 1,-1,-1, 1, 1, 1, 1, 1, 1, 1,-1, 1, 1,
+    -1,-1, 1,-1, 1, 1,-1, 1,-1,-1, 1, 1, 1,-1, 1,-1,
+     1, 1, 1, 1, 1, 1,-1, 1,-1, 1,-1, 1,-1, 1, 1,-1,
+     1,-1,-1, 1, 1,-1, 1, 1,-1, 1, 1, 1,-1, 1, 1, 1,
+    -1,-1, 1,-1, 1,-1,-1, 1,-1, 1,-1, 1, 1, 1, 1,-1
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Turbo4 dequantize kernels
+// ═══════════════════════════════════════════════════════════════════════
+
+static __device__ __forceinline__ uint8_t turbo4_unpack_3bit(const uint8_t * qs, int j) {
+    int bit_offset = j * 3, byte_idx = bit_offset / 8, bit_pos = bit_offset % 8;
+    uint16_t raw = (uint16_t)qs[byte_idx];
+    if (byte_idx + 1 < 48) raw |= (uint16_t)qs[byte_idx + 1] << 8;
+    return (uint8_t)((raw >> bit_pos) & 0x7);
+}
+
+template<typename dst_t>
+static __global__ void dequantize_block_turbo4_0_kernel(
+    const void * __restrict__ vx,
+    dst_t      * __restrict__ y,
+    const int64_t k
+) {
+    const int64_t i = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= k) return;
+
+    const int64_t blk_idx = i / QK_TURBO4;
+    const int     elem    = (int)(i % QK_TURBO4);
+    const block_turbo4_0 * x = (const block_turbo4_0 *)vx + blk_idx;
+
+    const float norm = __half2float(x->norm);
+    const float rnorm = __half2float(x->rnorm);
+    const float qjl_scale = 1.2533141f / 128.0f * rnorm;
+
+    uint8_t idx = turbo4_unpack_3bit(x->qs, elem);
+    float s = (x->signs[elem / 8] & (1 << (elem % 8))) ? 1.0f : -1.0f;
+
+    y[i] = (dst_t)((TURBO3_CENTROIDS_C[idx] + s * qjl_scale) * norm);
+}
+
 template<typename dst_t>
 static __global__ void dequantize_block_turbo3_0_kernel(
     const void * __restrict__ vx,
@@ -69,6 +131,30 @@ void dequantize_row_turbo3_0_bf16_cuda(
     const int threads = 256;
     const int blocks  = (k + threads - 1) / threads;
     dequantize_block_turbo3_0_kernel<nv_bfloat16><<<blocks, threads, 0, stream>>>(vx, y, k);
+}
+
+void dequantize_row_turbo4_0_fp16_cuda(
+    const void * vx, half * y, int64_t k, cudaStream_t stream
+) {
+    const int threads = 256;
+    const int blocks  = (k + threads - 1) / threads;
+    dequantize_block_turbo4_0_kernel<half><<<blocks, threads, 0, stream>>>(vx, y, k);
+}
+
+void dequantize_row_turbo4_0_fp32_cuda(
+    const void * vx, float * y, int64_t k, cudaStream_t stream
+) {
+    const int threads = 256;
+    const int blocks  = (k + threads - 1) / threads;
+    dequantize_block_turbo4_0_kernel<float><<<blocks, threads, 0, stream>>>(vx, y, k);
+}
+
+void dequantize_row_turbo4_0_bf16_cuda(
+    const void * vx, nv_bfloat16 * y, int64_t k, cudaStream_t stream
+) {
+    const int threads = 256;
+    const int blocks  = (k + threads - 1) / threads;
+    dequantize_block_turbo4_0_kernel<nv_bfloat16><<<blocks, threads, 0, stream>>>(vx, y, k);
 }
 
 // Non-contiguous dequant (for nc dispatch tables)
