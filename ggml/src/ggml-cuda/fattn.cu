@@ -22,6 +22,7 @@ static void ggml_cuda_flash_attn_ext_mma_f16(ggml_backend_cuda_context & ctx, gg
 //  During prefill: bulk dequant the N new positions, then shadow is populated.
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// Multi-row dequant: grid = (n_rows, n_heads), block = ne0 threads.
 static __global__ void k_turbo3_dequant_rows_f16(
         const char * __restrict__ src, half * __restrict__ dst,
         const int64_t ne0,
@@ -53,6 +54,7 @@ static __global__ void k_turbo3_dequant_rows_f16(
 
     dst[head * dst_head_stride + abs_row * dst_row_stride + j] = __float2half(val);
 }
+
 
 struct turbo_fp16_shadow {
     half *   buf       = nullptr;
