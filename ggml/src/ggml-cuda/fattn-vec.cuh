@@ -324,6 +324,7 @@ static __global__ void flash_attn_ext_vec(
             // Sparse V: skip V dequant+accumulate when all attention weights are negligible.
             // At 32K context, 90%+ of positions have weight < 1e-6. Skipping them eliminates
             // V memory reads + dequant compute for those positions. Zero quality impact.
+            // TheTom validated: 1e-4 through 1e-8 all give identical PPL.
             {
                 bool all_neg = true;
                 for (int j = 0; j < ncols; ++j) {
