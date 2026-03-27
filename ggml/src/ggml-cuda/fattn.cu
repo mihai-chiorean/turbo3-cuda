@@ -431,6 +431,7 @@ static void ggml_cuda_flash_attn_ext_vec(ggml_backend_cuda_context & ctx, ggml_t
     // TurboQuant FA (always available)
     FATTN_VEC_CASES_ALL_D(GGML_TYPE_TURBO3_0, GGML_TYPE_F16)
     FATTN_VEC_CASES_ALL_D(GGML_TYPE_TURBO3_0, GGML_TYPE_TURBO3_0)
+    FATTN_VEC_CASES_ALL_D(GGML_TYPE_TURBO3_0, GGML_TYPE_Q8_0)
     FATTN_VEC_CASES_ALL_D(GGML_TYPE_TURBO4_0, GGML_TYPE_TURBO4_0)
 
     GGML_ABORT("fatal error");
@@ -508,7 +509,9 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
 
 #ifndef GGML_CUDA_FA_ALL_QUANTS
     if (K->type != V->type) {
-        if (!(K->type == GGML_TYPE_TURBO3_0 && V->type == GGML_TYPE_F16)) {
+        const bool turbo_k_mixed = (K->type == GGML_TYPE_TURBO3_0 &&
+            (V->type == GGML_TYPE_F16 || V->type == GGML_TYPE_Q8_0));
+        if (!turbo_k_mixed) {
             return BEST_FATTN_KERNEL_NONE;
         }
     }
