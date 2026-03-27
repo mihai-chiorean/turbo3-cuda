@@ -1,8 +1,12 @@
 # Profiling Analysis from Decode Curve Data (Item 0.4)
 
-**Method**: CUDA profiling tools (ncu, nsys, nvprof) unavailable on WSL2.
+**Method**: CUDA profiling tools (ncu, nsys, nvprof) unavailable on WSL2
+(no sudo for apt install, no conda/pip packages available).
 Analysis derived from decode curve timing data which directly measures the
 FA kernel performance across context depths.
+
+**Attempted**: `apt install nsight-systems-cli` (requires sudo), `nsys` (not found),
+`ncu` (not found), conda/pip nsight packages (none available).
 
 ## Raw Data (from baseline commit fb4c5b789)
 
