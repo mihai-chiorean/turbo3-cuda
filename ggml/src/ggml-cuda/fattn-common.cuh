@@ -561,43 +561,50 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_turbo3_0(
     constexpr int cpy_ne = cpy_nb / 4;
 
     float sum = 0.0f;
+    int prev_ib = -1;
+    float cn[8]; // centroid * norm LUT, cached per block
 
 #pragma unroll
     for (int k_KQ_0 = 0; k_KQ_0 < D/2; k_KQ_0 += nthreads*cpy_ne) {
-        // Dequantize cpy_ne half2 pairs from turbo3, matching f16 load pattern
-        float2 tmp[cpy_ne];
         const int base = k_KQ_0 + (threadIdx.x % nthreads)*cpy_ne;
+        const int elem0 = base * 2;
+        const int ib = elem0 / QK_TURBO3;
+        const int j_start = elem0 % QK_TURBO3;
+
+        // Cache centroid*norm LUT once per block — eliminates redundant __half2float + multiply
+        if (ib != prev_ib) {
+            const float norm = __half2float(K_turbo[ib].norm);
 #pragma unroll
-        for (int c = 0; c < cpy_ne; ++c) {
-            const int pair_idx = base + c;
-            const int e0 = pair_idx * 2;
-            const int e1 = e0 + 1;
-
-            const int blk0 = e0 / QK_TURBO3;
-            const int j0   = e0 % QK_TURBO3;
-            const float norm0 = __half2float(K_turbo[blk0].norm);
-            uint8_t lo0 = (K_turbo[blk0].qs[j0 >> 2] >> ((j0 & 3) << 1)) & 0x3;
-            uint8_t hi0 = (K_turbo[blk0].signs[j0 >> 3] >> (j0 & 7)) & 0x1;
-
-            const int blk1 = e1 / QK_TURBO3;
-            const int j1   = e1 % QK_TURBO3;
-            const float norm1 = __half2float(K_turbo[blk1].norm);
-            uint8_t lo1 = (K_turbo[blk1].qs[j1 >> 2] >> ((j1 & 3) << 1)) & 0x3;
-            uint8_t hi1 = (K_turbo[blk1].signs[j1 >> 3] >> (j1 & 7)) & 0x1;
-
-            tmp[c].x = C[lo0 | (hi0 << 2)] * norm0;
-            tmp[c].y = C[lo1 | (hi1 << 2)] * norm1;
+            for (int c = 0; c < 8; c++) {
+                cn[c] = C[c] * norm;
+            }
+            prev_ib = ib;
         }
 
-        // Dot with Q_v using the EXACT same indexing as f16
+        // Batch-load qs and signs bytes — fewer device memory reads
+        const uint8_t qs_lo = K_turbo[ib].qs[j_start / 4];
+        const uint8_t qs_hi = K_turbo[ib].qs[j_start / 4 + 1];
+        const uint8_t signs = K_turbo[ib].signs[j_start / 8];
+
 #pragma unroll
         for (int k_KQ_1 = 0; k_KQ_1 < cpy_ne; ++k_KQ_1) {
+            const int lj = k_KQ_1 * 2;
+            int idx0, idx1;
+            { const uint8_t qs_b = (lj < 4) ? qs_lo : qs_hi;
+              const uint8_t low2 = (qs_b >> ((lj % 4) * 2)) & 0x3;
+              const uint8_t hi1  = (signs >> lj) & 0x1;
+              idx0 = low2 | (hi1 << 2); }
+            { const int lj1 = lj + 1;
+              const uint8_t qs_b = (lj1 < 4) ? qs_lo : qs_hi;
+              const uint8_t low2 = (qs_b >> ((lj1 % 4) * 2)) & 0x3;
+              const uint8_t hi1  = (signs >> lj1) & 0x1;
+              idx1 = low2 | (hi1 << 2); }
 #ifdef V_DOT2_F32_F16_AVAILABLE
             const half2 qv = ((const half2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1];
-            sum += tmp[k_KQ_1].x * __low2float(qv) + tmp[k_KQ_1].y * __high2float(qv);
+            sum += cn[idx0] * __low2float(qv) + cn[idx1] * __high2float(qv);
 #else
             const float2 qv = ((const float2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1];
-            sum += tmp[k_KQ_1].x * qv.x + tmp[k_KQ_1].y * qv.y;
+            sum += cn[idx0] * qv.x + cn[idx1] * qv.y;
 #endif
         }
     }
