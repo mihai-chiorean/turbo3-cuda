@@ -2936,6 +2936,14 @@ llama_context * llama_init_from_model(
         params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
     }
 
+    if (params.type_k == GGML_TYPE_TURBO3_0 || params.type_v == GGML_TYPE_TURBO3_0 ||
+        params.type_k == GGML_TYPE_TURBO4_0 || params.type_v == GGML_TYPE_TURBO4_0) {
+        if (params.flash_attn_type == LLAMA_FLASH_ATTN_TYPE_DISABLED) {
+            LLAMA_LOG_WARN("%s: turbo cache types require flash attention - forcing on\n", __func__);
+        }
+        params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+    }
+
     if (params.flash_attn_type == LLAMA_FLASH_ATTN_TYPE_AUTO && ggml_is_quantized(params.type_k)) {
         const uint32_t blck_size = ggml_blck_size(params.type_k);
         for (uint32_t il = 0; il < model->hparams.n_layer; ++il) {
