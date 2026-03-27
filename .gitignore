@@ -141,6 +141,7 @@ poetry.toml
 # IDE
 /*.code-workspace
 /.windsurf/
+AGENTS.md
 # emscripten
 a.out.*
 
