@@ -1,0 +1,1474 @@
+TurboQuant Hardware Diagnostic v5
+Output: ~/ai/turboquant/research/llama-cpp-turboquant/benchmarks/community/turbo-diag-20260327-091147.txt (human-readable log, zipped at end)
+Model: ~/ai/turboquant/models/opus-v2-Q6_K.gguf
+
+NO PII is collected. Only hardware specs, load stats, and benchmarks.
+Estimated runtime: 20-40 minutes.
+
+Press Ctrl+C to abort at any time.
+
+TURBO_DIAG_VERSION=5
+TURBO_DIAG_TIMESTAMP=2026-03-27T16:11:47Z
+TURBO_DIAG_MODEL=opus-v2-Q6_K.gguf
+TURBO_DIAG_MODEL_SIZE=20.6G
+
+================================================================
+  1. HARDWARE INVENTORY (no PII)
+================================================================
+
+[HW] os=Linux os_version=6.6.87.2-microsoft-standard-WSL2 arch=x86_64
+[HW] kernel=6.6.87.2-microsoft-standard-WSL2
+[HW] cpu_brand=AMD Ryzen 9 9950X3D 16-Core Processor
+[HW] cpu_cores_physical=16
+[HW] cpu_cores_logical=32
+[HW] ram_total_bytes=50071699456
+[HW] ram_total_gb=46
+
+--- GPU Details ---
+[HW_GPU] NVIDIA GeForce RTX 5090, 32607 MiB, 581.80, 00000000:01:00.0
+[HW] gpu_backend=cuda
+[HW] apple_silicon=false
+[HW] l1_cache=32K
+[HW] l2_cache=1024K
+[HW] l3_cache=98304K
+
+--- Thermal ---
+
+================================================================
+  2. SYSTEM LOAD (pre-benchmark baseline)
+================================================================
+
+Capturing system state BEFORE benchmarks to detect interference.
+
+[LOAD_SNAPSHOT] label=pre_benchmark timestamp=2026-03-27T16:11:47Z
+[LOAD_SNAPSHOT] load_avg=0.16 0.37 0.32
+[LOAD_SNAPSHOT] mem_free_mb=21673 mem_available_mb=43481
+[LOAD_SNAPSHOT] swap_total_mb=12288 swap_free_mb=12288
+[LOAD_SNAPSHOT] gpu_util=16 %, 2232 MiB, 32607 MiB, 33
+[LOAD_SNAPSHOT] process_count=129
+
+--- Top CPU consumers (command name only) ---
+[LOAD_TOP] 6.9 clickhouse-serv
+[LOAD_TOP] 2.0 python3
+[LOAD_TOP] 0.6 bash
+[LOAD_TOP] 0.2 node
+[LOAD_TOP] 0.1 cloudflared
+[LOAD_TOP] 0.1 cloudflared
+[LOAD_TOP] 0.0 systemd
+[LOAD_TOP] 0.0 init-systemd(Ub
+[LOAD_TOP] 0.0 init
+[LOAD_TOP] 0.0 systemd-journal
+
+--- Disk I/O ---
+
+--- GPU-using processes ---
+[LOAD_GPU_PROC] none detected
+
+================================================================
+  3. MODEL INFO
+================================================================
+
+Extracting model metadata from GGUF file...
+
+[WARNING] Could not extract model metadata: Command '['~/ai/turboquant/research/llama-cpp-turboquant/build/bin/llama-cli', '-m', '~/ai/turboquant/models/opus-v2-Q6_K.gguf', '-ngl', '99', '-fa', 'on', '--cache-type-k', 'q8_0', '--cache-type-v', 'q8_0', '-c', '512', '-n', '0', '-p', 'x', '--jinja']' timed out after 60 seconds
+
+[MODEL] filename=opus-v2-Q6_K.gguf
+[MODEL] filesize_bytes=22082525664
+
+--- Model storage and mmap check ---
+[MMAP] model_file=opus-v2-Q6_K.gguf
+[STORAGE] type=hdd
+[WARNING] Model is on spinning disk (HDD). mmap performance will be degraded.
+
+================================================================
+  4. GPU DEVICE CAPABILITIES
+================================================================
+
+Extracting GPU info from llama.cpp init...
+
+[WARNING] Could not get GPU init: Command '['~/ai/turboquant/research/llama-cpp-turboquant/build/bin/llama-cli', '-m', '~/ai/turboquant/models/opus-v2-Q6_K.gguf', '-ngl', '99', '-fa', 'on', '--cache-type-k', 'turbo3', '--cache-type-v', 'turbo3', '-c', '512', '-n', '1', '-p', 'test', '--jinja']' timed out after 60 seconds
+
+--- CUDA Device Check ---
+[CUDA] NVIDIA GeForce RTX 5090, 12.0, 32607 MiB, 3090 MHz
+
+================================================================
+  5. BUILD VALIDATION
+================================================================
+
+
+--- turbo3 in llama-bench ---
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |            pp64 |         10.58 ± 0.00 |
+
+build: 291d29a04 (8538)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+
+--- Metal library validation ---
+WARNING: Metal library validation failed: Command '['~/ai/turboquant/research/llama-cpp-turboquant/build/bin/llama-cli', '-m', '~/ai/turboquant/models/opus-v2-Q6_K.gguf', '-ngl', '99', '-fa', 'on', '--cache-type-k', 'turbo3', '--cache-type-v', 'turbo3', '-c', '512', '-n', '1', '-p', 'test', '--jinja']' timed out after 60 seconds
+
+--- Build commit ---
+[BUILD] 291d29a04 docs: comprehensive README — turbo3 beats q8_0 at long context
+
+================================================================
+  6. PREFILL SPEED (tok/s)
+================================================================
+
+Prefill at 2K/4K/8K/16K/32K. Expect flat 0.98-1.00x q8_0.
+If ratio drops >5% across depths = context scaling regression.
+
+
+[LOAD_SNAPSHOT] label=pre_prefill timestamp=2026-03-27T16:16:25Z
+[LOAD_SNAPSHOT] load_avg=3.29 1.72 0.88
+[LOAD_SNAPSHOT] mem_free_mb=18005 mem_available_mb=40401
+[LOAD_SNAPSHOT] swap_total_mb=12288 swap_free_mb=12288
+[LOAD_SNAPSHOT] gpu_util=20 %, 883 MiB, 32607 MiB, 34
+[LOAD_SNAPSHOT] process_count=138
+
+--- q8_0 prefill (all depths) ---
+[BENCH_START] label="q8_0 prefill (all depths)" ctk=q8_0 ctv=q8_0 args="-p 2048,4096,8192,16384,32768 -n 0" env="" timestamp=2026-03-27T16:16:25Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |          pp2048 |       3039.12 ± 5.50 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |          pp4096 |       3049.35 ± 1.11 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |          pp8192 |     2902.87 ± 143.61 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |         pp16384 |       2913.62 ± 5.65 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |         pp32768 |      2819.08 ± 92.96 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 prefill (all depths)" wall_sec=186
+
+--- turbo3 prefill (all depths) ---
+[BENCH_START] label="turbo3 prefill (all depths)" ctk=turbo3 ctv=turbo3 args="-p 2048,4096,8192,16384,32768 -n 0" env="" timestamp=2026-03-27T16:19:27Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |          pp2048 |       2911.42 ± 0.67 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |          pp4096 |       2928.58 ± 3.96 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |          pp8192 |       2878.12 ± 2.84 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |         pp16384 |       2812.94 ± 5.47 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |         pp32768 |      2745.60 ± 87.82 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 prefill (all depths)" wall_sec=97
+
+--- turbo3 mode2 prefill (all depths) ---
+[BENCH_START] label="turbo3 mode2 prefill (all depths)" ctk=turbo3 ctv=turbo3 args="-p 2048,4096,8192,16384,32768 -n 0" env="TURBO_LAYER_ADAPTIVE=2" timestamp=2026-03-27T16:21:03Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |          pp2048 |       2938.35 ± 2.88 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |          pp4096 |       2938.22 ± 1.86 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |          pp8192 |       2892.71 ± 1.07 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |         pp16384 |     2942.00 ± 214.54 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |         pp32768 |      2742.19 ± 87.12 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 mode2 prefill (all depths)" wall_sec=95
+
+[LOAD_SNAPSHOT] label=post_prefill timestamp=2026-03-27T16:22:36Z
+[LOAD_SNAPSHOT] load_avg=1.05 1.33 1.00
+[LOAD_SNAPSHOT] mem_free_mb=17965 mem_available_mb=40400
+[LOAD_SNAPSHOT] swap_total_mb=12288 swap_free_mb=12288
+[LOAD_SNAPSHOT] gpu_util=37 %, 827 MiB, 32607 MiB, 72
+[LOAD_SNAPSHOT] process_count=130
+
+================================================================
+  7. DECODE SPEED (tok/s) — THE CRITICAL TEST
+================================================================
+
+Decode at increasing context depths. This is where M1 fails.
+
+Known baselines:
+  M5 Max: turbo3/q8_0 = 0.92x (short) → 0.72x (48K)
+  M1 Max: turbo3/q8_0 = ??? (short) → 0.09x (42K) ← CATASTROPHIC
+
+Healthy: ratio stays above 0.70x through 32K
+Problem: ratio drops below 0.50x at any depth
+
+
+[LOAD_SNAPSHOT] label=pre_decode timestamp=2026-03-27T16:22:36Z
+[LOAD_SNAPSHOT] load_avg=1.05 1.33 1.00
+[LOAD_SNAPSHOT] mem_free_mb=17967 mem_available_mb=40400
+[LOAD_SNAPSHOT] swap_total_mb=12288 swap_free_mb=12288
+[LOAD_SNAPSHOT] gpu_util=1 %, 827 MiB, 32607 MiB, 72
+[LOAD_SNAPSHOT] process_count=130
+
+--- q8_0 decode (short) ---
+[BENCH_START] label="q8_0 decode (short)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 128" env="" timestamp=2026-03-27T16:22:36Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |           tg128 |         55.92 ± 0.11 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode (short)" wall_sec=9
+
+--- turbo3 decode (short) ---
+[BENCH_START] label="turbo3 decode (short)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 128" env="" timestamp=2026-03-27T16:22:46Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |           tg128 |         52.14 ± 0.30 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode (short)" wall_sec=9
+
+--- turbo3 mode2 decode (short) ---
+[BENCH_START] label="turbo3 mode2 decode (short)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 128" env="TURBO_LAYER_ADAPTIVE=2" timestamp=2026-03-27T16:22:56Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |           tg128 |         52.75 ± 0.12 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 mode2 decode (short)" wall_sec=9
+
+--- q8_0 decode (@4K) ---
+[BENCH_START] label="q8_0 decode (@4K)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 128 -d 4096" env="" timestamp=2026-03-27T16:23:05Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |   tg128 @ d4096 |         53.90 ± 1.50 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode (@4K)" wall_sec=11
+
+--- turbo3 decode (@4K) ---
+[BENCH_START] label="turbo3 decode (@4K)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 128 -d 4096" env="" timestamp=2026-03-27T16:23:16Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |   tg128 @ d4096 |         51.60 ± 0.51 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode (@4K)" wall_sec=11
+
+--- turbo3 mode2 decode (@4K) ---
+[BENCH_START] label="turbo3 mode2 decode (@4K)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 128 -d 4096" env="TURBO_LAYER_ADAPTIVE=2" timestamp=2026-03-27T16:23:27Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |   tg128 @ d4096 |        58.99 ± 12.23 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 mode2 decode (@4K)" wall_sec=11
+
+--- q8_0 decode (@8K) ---
+[BENCH_START] label="q8_0 decode (@8K)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 128 -d 8192" env="" timestamp=2026-03-27T16:23:38Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |   tg128 @ d8192 |         53.16 ± 0.17 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode (@8K)" wall_sec=12
+
+--- turbo3 decode (@8K) ---
+[BENCH_START] label="turbo3 decode (@8K)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 128 -d 8192" env="" timestamp=2026-03-27T16:23:51Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |   tg128 @ d8192 |         50.29 ± 0.25 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode (@8K)" wall_sec=13
+
+--- turbo3 mode2 decode (@8K) ---
+[BENCH_START] label="turbo3 mode2 decode (@8K)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 128 -d 8192" env="TURBO_LAYER_ADAPTIVE=2" timestamp=2026-03-27T16:24:04Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |   tg128 @ d8192 |        57.85 ± 11.27 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 mode2 decode (@8K)" wall_sec=12
+
+--- q8_0 decode (@16K) ---
+[BENCH_START] label="q8_0 decode (@16K)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 128 -d 16384" env="" timestamp=2026-03-27T16:24:16Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |  tg128 @ d16384 |         49.81 ± 0.37 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode (@16K)" wall_sec=16
+
+--- turbo3 decode (@16K) ---
+[BENCH_START] label="turbo3 decode (@16K)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 128 -d 16384" env="" timestamp=2026-03-27T16:24:33Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |  tg128 @ d16384 |        56.39 ± 10.58 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode (@16K)" wall_sec=16
+[INVESTIGATE] turbo3 FASTER than q8_0 at 16384: 1.132x. Measurement error? System load changed between runs?
+[INVESTIGATE] Decode IMPROVED at deeper context: 0.946x @ 8192 -> 1.132x @ 16384. Measurement noise or system load change?
+
+--- turbo3 mode2 decode (@16K) ---
+[BENCH_START] label="turbo3 mode2 decode (@16K)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 128 -d 16384" env="TURBO_LAYER_ADAPTIVE=2" timestamp=2026-03-27T16:24:48Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |  tg128 @ d16384 |         49.44 ± 0.00 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 mode2 decode (@16K)" wall_sec=16
+
+--- q8_0 decode (@32K) ---
+[BENCH_START] label="q8_0 decode (@32K)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 128 -d 32768" env="" timestamp=2026-03-27T16:25:04Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |  tg128 @ d32768 |         44.90 ± 0.03 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode (@32K)" wall_sec=23
+
+--- turbo3 decode (@32K) ---
+[BENCH_START] label="turbo3 decode (@32K)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 128 -d 32768" env="" timestamp=2026-03-27T16:25:28Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |  tg128 @ d32768 |         53.47 ± 9.17 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode (@32K)" wall_sec=23
+[INVESTIGATE] turbo3 FASTER than q8_0 at 32768: 1.191x. Measurement error? System load changed between runs?
+[INVESTIGATE] Decode IMPROVED at deeper context: 1.132x @ 16384 -> 1.191x @ 32768. Measurement noise or system load change?
+
+--- turbo3 mode2 decode (@32K) ---
+[BENCH_START] label="turbo3 mode2 decode (@32K)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 128 -d 32768" env="TURBO_LAYER_ADAPTIVE=2" timestamp=2026-03-27T16:25:50Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |  tg128 @ d32768 |         47.52 ± 0.18 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 mode2 decode (@32K)" wall_sec=23
+
+[LOAD_SNAPSHOT] label=post_decode timestamp=2026-03-27T16:26:13Z
+[LOAD_SNAPSHOT] load_avg=1.10 1.21 1.01
+[LOAD_SNAPSHOT] mem_free_mb=18046 mem_available_mb=40420
+[LOAD_SNAPSHOT] swap_total_mb=12288 swap_free_mb=12288
+[LOAD_SNAPSHOT] gpu_util=51 %, 838 MiB, 32607 MiB, 61
+[LOAD_SNAPSHOT] process_count=130
+
+================================================================
+  8. CONSTANT CACHE STRESS TEST (fine-grained decode gradient)
+================================================================
+
+Fine-grained decode at many depths to find the EXACT inflection point.
+This tells us where constant cache pressure becomes dominant.
+
+NOTE: 1K context is unreliable (Metal async dispatch timing artifact).
+      Results at 1K may show impossibly high numbers — ignore them.
+
+
+--- turbo3 decode @2048 (stress) ---
+[BENCH_START] label="turbo3 decode @2048 (stress)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 64 -d 2048" env="" timestamp=2026-03-27T16:26:13Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |    tg64 @ d2048 |         52.19 ± 0.34 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode @2048 (stress)" wall_sec=6
+
+--- turbo3 decode @3072 (stress) ---
+[BENCH_START] label="turbo3 decode @3072 (stress)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 64 -d 3072" env="" timestamp=2026-03-27T16:26:20Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |    tg64 @ d3072 |         52.08 ± 0.32 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode @3072 (stress)" wall_sec=7
+
+--- turbo3 decode @4096 (stress) ---
+[BENCH_START] label="turbo3 decode @4096 (stress)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 64 -d 4096" env="" timestamp=2026-03-27T16:26:27Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |    tg64 @ d4096 |         51.58 ± 0.79 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode @4096 (stress)" wall_sec=7
+
+--- turbo3 decode @6144 (stress) ---
+[BENCH_START] label="turbo3 decode @6144 (stress)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 64 -d 6144" env="" timestamp=2026-03-27T16:26:35Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |    tg64 @ d6144 |         51.39 ± 0.32 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode @6144 (stress)" wall_sec=8
+
+--- turbo3 decode @8192 (stress) ---
+[BENCH_START] label="turbo3 decode @8192 (stress)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 64 -d 8192" env="" timestamp=2026-03-27T16:26:43Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |    tg64 @ d8192 |         50.37 ± 0.38 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode @8192 (stress)" wall_sec=9
+
+--- turbo3 decode @12288 (stress) ---
+[BENCH_START] label="turbo3 decode @12288 (stress)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 64 -d 12288" env="" timestamp=2026-03-27T16:26:52Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |   tg64 @ d12288 |         49.92 ± 0.35 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode @12288 (stress)" wall_sec=10
+
+--- turbo3 decode @16384 (stress) ---
+[BENCH_START] label="turbo3 decode @16384 (stress)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 64 -d 16384" env="" timestamp=2026-03-27T16:27:02Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |   tg64 @ d16384 |         49.62 ± 0.33 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode @16384 (stress)" wall_sec=12
+
+--- turbo3 decode @20480 (stress) ---
+[BENCH_START] label="turbo3 decode @20480 (stress)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 64 -d 20480" env="" timestamp=2026-03-27T16:27:15Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |   tg64 @ d20480 |         49.22 ± 0.36 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode @20480 (stress)" wall_sec=13
+
+--- turbo3 decode @24576 (stress) ---
+[BENCH_START] label="turbo3 decode @24576 (stress)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 64 -d 24576" env="" timestamp=2026-03-27T16:27:28Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |   tg64 @ d24576 |         48.72 ± 0.40 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode @24576 (stress)" wall_sec=15
+
+--- turbo3 decode @28672 (stress) ---
+[BENCH_START] label="turbo3 decode @28672 (stress)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 64 -d 28672" env="" timestamp=2026-03-27T16:27:44Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |   tg64 @ d28672 |         48.31 ± 0.31 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode @28672 (stress)" wall_sec=17
+
+--- turbo3 decode @32768 (stress) ---
+[BENCH_START] label="turbo3 decode @32768 (stress)" ctk=turbo3 ctv=turbo3 args="-p 0 -n 64 -d 32768" env="" timestamp=2026-03-27T16:28:00Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |   tg64 @ d32768 |         47.90 ± 0.42 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 decode @32768 (stress)" wall_sec=19
+
+q8_0 baseline at same depths:
+
+--- q8_0 decode @2048 (stress) ---
+[BENCH_START] label="q8_0 decode @2048 (stress)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 64 -d 2048" env="" timestamp=2026-03-27T16:28:19Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |    tg64 @ d2048 |         55.22 ± 0.41 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode @2048 (stress)" wall_sec=6
+
+--- q8_0 decode @3072 (stress) ---
+[BENCH_START] label="q8_0 decode @3072 (stress)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 64 -d 3072" env="" timestamp=2026-03-27T16:28:25Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |    tg64 @ d3072 |         55.18 ± 0.38 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode @3072 (stress)" wall_sec=7
+
+--- q8_0 decode @4096 (stress) ---
+[BENCH_START] label="q8_0 decode @4096 (stress)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 64 -d 4096" env="" timestamp=2026-03-27T16:28:32Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |    tg64 @ d4096 |         54.43 ± 0.44 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode @4096 (stress)" wall_sec=7
+
+--- q8_0 decode @6144 (stress) ---
+[BENCH_START] label="q8_0 decode @6144 (stress)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 64 -d 6144" env="" timestamp=2026-03-27T16:28:40Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |    tg64 @ d6144 |         53.77 ± 0.38 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode @6144 (stress)" wall_sec=8
+
+--- q8_0 decode @8192 (stress) ---
+[BENCH_START] label="q8_0 decode @8192 (stress)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 64 -d 8192" env="" timestamp=2026-03-27T16:28:48Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |    tg64 @ d8192 |        76.44 ± 40.15 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode @8192 (stress)" wall_sec=8
+
+--- q8_0 decode @12288 (stress) ---
+[BENCH_START] label="q8_0 decode @12288 (stress)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 64 -d 12288" env="" timestamp=2026-03-27T16:28:56Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |   tg64 @ d12288 |         51.74 ± 0.34 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode @12288 (stress)" wall_sec=10
+
+--- q8_0 decode @16384 (stress) ---
+[BENCH_START] label="q8_0 decode @16384 (stress)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 64 -d 16384" env="" timestamp=2026-03-27T16:29:07Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |   tg64 @ d16384 |         49.84 ± 0.38 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode @16384 (stress)" wall_sec=12
+
+--- q8_0 decode @20480 (stress) ---
+[BENCH_START] label="q8_0 decode @20480 (stress)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 64 -d 20480" env="" timestamp=2026-03-27T16:29:19Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |   tg64 @ d20480 |         48.63 ± 0.27 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode @20480 (stress)" wall_sec=13
+
+--- q8_0 decode @24576 (stress) ---
+[BENCH_START] label="q8_0 decode @24576 (stress)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 64 -d 24576" env="" timestamp=2026-03-27T16:29:33Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |   tg64 @ d24576 |         47.51 ± 0.24 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode @24576 (stress)" wall_sec=15
+
+--- q8_0 decode @28672 (stress) ---
+[BENCH_START] label="q8_0 decode @28672 (stress)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 64 -d 28672" env="" timestamp=2026-03-27T16:29:48Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |   tg64 @ d28672 |         46.25 ± 0.44 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode @28672 (stress)" wall_sec=17
+
+--- q8_0 decode @32768 (stress) ---
+[BENCH_START] label="q8_0 decode @32768 (stress)" ctk=q8_0 ctv=q8_0 args="-p 0 -n 64 -d 32768" env="" timestamp=2026-03-27T16:30:05Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |   tg64 @ d32768 |         44.77 ± 0.44 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 decode @32768 (stress)" wall_sec=19
+[ANOMALY] Steep decode degradation: 1.191x @ 32768 -> 0.945x @ 2048 (21% drop)
+[ANOMALY] Steep decode degradation: 0.956x @ 6144 -> 0.659x @ 8192 (31% drop)
+[INVESTIGATE] Decode IMPROVED at deeper context: 0.659x @ 8192 -> 0.965x @ 12288. Measurement noise or system load change?
+[NOTABLE] Excellent decode ratio at 16384: 0.996x — near q8_0 parity at long context
+[NOTABLE] Excellent decode ratio at 20480: 1.012x — near q8_0 parity at long context
+[NOTABLE] Excellent decode ratio at 24576: 1.025x — near q8_0 parity at long context
+[NOTABLE] Excellent decode ratio at 28672: 1.045x — near q8_0 parity at long context
+[INVESTIGATE] turbo3 FASTER than q8_0 at 32768: 1.070x. Measurement error? System load changed between runs?
+
+[LOAD_SNAPSHOT] label=post_stress timestamp=2026-03-27T16:30:24Z
+[LOAD_SNAPSHOT] load_avg=1.00 1.10 1.00
+[LOAD_SNAPSHOT] mem_free_mb=18029 mem_available_mb=40412
+[LOAD_SNAPSHOT] swap_total_mb=12288 swap_free_mb=12288
+[LOAD_SNAPSHOT] gpu_util=2 %, 838 MiB, 32607 MiB, 63
+[LOAD_SNAPSHOT] process_count=130
+
+================================================================
+  9. COMBINED PREFILL+DECODE (realistic workload)
+================================================================
+
+Simulates real usage: prefill a prompt, then generate response tokens.
+
+
+--- q8_0 pp4K+tg128 ---
+[BENCH_START] label="q8_0 pp4K+tg128" ctk=q8_0 ctv=q8_0 args="-pg 4096,128" env="" timestamp=2026-03-27T16:30:24Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |           pp512 |      3102.66 ± 68.78 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |           tg128 |        63.93 ± 14.04 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |    pp4096+tg128 |       1140.02 ± 1.05 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 pp4K+tg128" wall_sec=22
+
+--- turbo3 pp4K+tg128 ---
+[BENCH_START] label="turbo3 pp4K+tg128" ctk=turbo3 ctv=turbo3 args="-pg 4096,128" env="" timestamp=2026-03-27T16:30:46Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |           pp512 |      3031.36 ± 74.41 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |           tg128 |         52.28 ± 0.05 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |    pp4096+tg128 |     1164.14 ± 139.10 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 pp4K+tg128" wall_sec=23
+
+--- turbo3 mode2 pp4K+tg128 ---
+[BENCH_START] label="turbo3 mode2 pp4K+tg128" ctk=turbo3 ctv=turbo3 args="-pg 4096,128" env="TURBO_LAYER_ADAPTIVE=2" timestamp=2026-03-27T16:31:09Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |           pp512 |      3033.88 ± 63.87 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |           tg128 |         52.55 ± 0.03 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |    pp4096+tg128 |     1174.81 ± 147.70 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 mode2 pp4K+tg128" wall_sec=23
+
+--- q8_0 pp8K+tg256 ---
+[BENCH_START] label="q8_0 pp8K+tg256" ctk=q8_0 ctv=q8_0 args="-pg 8192,256" env="" timestamp=2026-03-27T16:31:32Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |           pp512 |      3094.77 ± 69.65 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |           tg128 |         55.79 ± 0.16 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |    pp8192+tg256 |      1155.11 ± 76.52 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 pp8K+tg256" wall_sec=35
+
+--- turbo3 pp8K+tg256 ---
+[BENCH_START] label="turbo3 pp8K+tg256" ctk=turbo3 ctv=turbo3 args="-pg 8192,256" env="" timestamp=2026-03-27T16:32:07Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |           pp512 |      3047.35 ± 73.14 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |           tg128 |         51.85 ± 0.20 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |    pp8192+tg256 |      1105.24 ± 63.46 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 pp8K+tg256" wall_sec=37
+
+--- turbo3 mode2 pp8K+tg256 ---
+[BENCH_START] label="turbo3 mode2 pp8K+tg256" ctk=turbo3 ctv=turbo3 args="-pg 8192,256" env="TURBO_LAYER_ADAPTIVE=2" timestamp=2026-03-27T16:32:43Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |           pp512 |      3016.69 ± 67.31 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |           tg128 |         52.38 ± 0.06 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |    pp8192+tg256 |      1110.63 ± 67.33 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 mode2 pp8K+tg256" wall_sec=37
+
+--- q8_0 pp16K+tg512 ---
+[BENCH_START] label="q8_0 pp16K+tg512" ctk=q8_0 ctv=q8_0 args="-pg 16384,512" env="" timestamp=2026-03-27T16:33:20Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |           pp512 |      3079.96 ± 82.69 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |           tg128 |         55.32 ± 0.15 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 |   q8_0 |   q8_0 |  1 |   pp16384+tg512 |      1090.62 ± 28.92 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="q8_0 pp16K+tg512" wall_sec=63
+
+--- turbo3 pp16K+tg512 ---
+[BENCH_START] label="turbo3 pp16K+tg512" ctk=turbo3 ctv=turbo3 args="-pg 16384,512" env="" timestamp=2026-03-27T16:34:22Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+| model                          |       size |     params | backend    | ngl | type_k | type_v | fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | -----: | -----: | -: | --------------: | -------------------: |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |           pp512 |      3025.90 ± 65.03 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |           tg128 |         52.23 ± 0.03 |
+| qwen35 27B Q6_K                |  20.56 GiB |    26.90 B | CUDA       |  99 | turbo3 | turbo3 |  1 |   pp16384+tg512 |      1074.55 ± 28.65 |
+
+build: 291d29a04 (8538)
+[BENCH_END] label="turbo3 pp16K+tg512" wall_sec=65
+
+================================================================
+  10. PERPLEXITY (quality validation)
+================================================================
+
+PPL must be within 2% of q8_0. If not, something is wrong with the build.
+CRITICAL: A PPL >2% delta means quality is broken — speed numbers are meaningless.
+
+
+--- q8_0 PPL (8 chunks) ---
+[PPL_START] label="q8_0 PPL (8 chunks)" ctk=q8_0 ctv=q8_0 chunks=8 timestamp=2026-03-27T16:35:26Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+build: 8538 (291d29a04) with GNU 13.3.0 for Linux x86_64
+common_init_result: fitting params to device memory, for bugs during this step try to reproduce them with -fit off, or provide --verbose logs if the bug only occurs with -fit on
+llama_params_fit_impl: projected to use 21225 MiB of device memory vs. 30241 MiB of free device memory
+llama_params_fit_impl: will leave 9015 >= 1024 MiB of free device memory, no changes needed
+llama_params_fit: successfully fit params to free device memory
+llama_params_fit: fitting params to free memory took 0.38 seconds
+llama_model_load_from_file_impl: using device CUDA0 (NVIDIA GeForce RTX 5090) (0000:01:00.0) - 30841 MiB free
+llama_model_loader: loaded meta data with 49 key-value pairs and 851 tensors from ~/ai/turboquant/models/opus-v2-Q6_K.gguf (version GGUF V3 (latest))
+llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+llama_model_loader: - kv   0:                       general.architecture str              = qwen35
+llama_model_loader: - kv   1:                               general.type str              = model
+llama_model_loader: - kv   2:                               general.name str              = Opus v2 Source
+llama_model_loader: - kv   3:                         general.size_label str              = 27B
+llama_model_loader: - kv   4:                            general.license str              = apache-2.0
+llama_model_loader: - kv   5:                   general.base_model.count u32              = 1
+llama_model_loader: - kv   6:                  general.base_model.0.name str              = Qwen3.5 27B
+llama_model_loader: - kv   7:          general.base_model.0.organization str              = Qwen
+llama_model_loader: - kv   8:              general.base_model.0.repo_url str              = https://huggingface.co/Qwen/Qwen3.5-27B
+llama_model_loader: - kv   9:                      general.dataset.count u32              = 3
+llama_model_loader: - kv  10:                     general.dataset.0.name str              = Opus 4.6 Reasoning 3000x Filtered
+llama_model_loader: - kv  11:             general.dataset.0.organization str              = Nohurry
+llama_model_loader: - kv  12:                 general.dataset.0.repo_url str              = https://huggingface.co/nohurry/Opus-4...
+llama_model_loader: - kv  13:                     general.dataset.1.name str              = Qwen3.5 Reasoning 700x
+llama_model_loader: - kv  14:             general.dataset.1.organization str              = Jackrong
+llama_model_loader: - kv  15:                 general.dataset.1.repo_url str              = https://huggingface.co/Jackrong/Qwen3...
+llama_model_loader: - kv  16:                     general.dataset.2.name str              = Claude Opus 4.6 10000x
+llama_model_loader: - kv  17:             general.dataset.2.organization str              = Roman1111111
+llama_model_loader: - kv  18:                 general.dataset.2.repo_url str              = https://huggingface.co/Roman1111111/c...
+llama_model_loader: - kv  19:                               general.tags arr[str,7]       = ["unsloth", "qwen", "qwen3.5", "reaso...
+llama_model_loader: - kv  20:                          general.languages arr[str,3]       = ["en", "zh", "ko"]
+llama_model_loader: - kv  21:                         qwen35.block_count u32              = 64
+llama_model_loader: - kv  22:                      qwen35.context_length u32              = 262144
+llama_model_loader: - kv  23:                    qwen35.embedding_length u32              = 5120
+llama_model_loader: - kv  24:                 qwen35.feed_forward_length u32              = 17408
+llama_model_loader: - kv  25:                qwen35.attention.head_count u32              = 24
+llama_model_loader: - kv  26:             qwen35.attention.head_count_kv u32              = 4
+llama_model_loader: - kv  27:             qwen35.rope.dimension_sections arr[i32,4]       = [11, 11, 10, 0]
+llama_model_loader: - kv  28:                      qwen35.rope.freq_base f32              = 10000000.000000
+llama_model_loader: - kv  29:    qwen35.attention.layer_norm_rms_epsilon f32              = 0.000001
+llama_model_loader: - kv  30:                qwen35.attention.key_length u32              = 256
+llama_model_loader: - kv  31:              qwen35.attention.value_length u32              = 256
+llama_model_loader: - kv  32:                     qwen35.ssm.conv_kernel u32              = 4
+llama_model_loader: - kv  33:                      qwen35.ssm.state_size u32              = 128
+llama_model_loader: - kv  34:                     qwen35.ssm.group_count u32              = 16
+llama_model_loader: - kv  35:                  qwen35.ssm.time_step_rank u32              = 48
+llama_model_loader: - kv  36:                      qwen35.ssm.inner_size u32              = 6144
+llama_model_loader: - kv  37:             qwen35.full_attention_interval u32              = 4
+llama_model_loader: - kv  38:                qwen35.rope.dimension_count u32              = 64
+llama_model_loader: - kv  39:                       tokenizer.ggml.model str              = gpt2
+llama_model_loader: - kv  40:                         tokenizer.ggml.pre str              = qwen35
+llama_model_loader: - kv  41:                      tokenizer.ggml.tokens arr[str,248320]  = ["!", "\"", "#", "$", "%", "&", "'", ...
+llama_model_loader: - kv  42:                  tokenizer.ggml.token_type arr[i32,248320]  = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ...
+llama_model_loader: - kv  43:                      tokenizer.ggml.merges arr[str,247587]  = ["Ġ Ġ", "ĠĠ ĠĠ", "i n", "Ġ t",...
+llama_model_loader: - kv  44:                tokenizer.ggml.eos_token_id u32              = 248046
+llama_model_loader: - kv  45:            tokenizer.ggml.padding_token_id u32              = 248044
+llama_model_loader: - kv  46:                    tokenizer.chat_template str              = {%- if tools %}\n    {{- '<|im_start|>...
+llama_model_loader: - kv  47:               general.quantization_version u32              = 2
+llama_model_loader: - kv  48:                          general.file_type u32              = 18
+llama_model_loader: - type  f32:  353 tensors
+llama_model_loader: - type q6_K:  498 tensors
+print_info: file format = GGUF V3 (latest)
+print_info: file type   = Q6_K
+print_info: file size   = 20.56 GiB (6.57 BPW) 
+load: 0 unused tokens
+load: printing all EOG tokens:
+load:   - 248044 ('<|endoftext|>')
+load:   - 248046 ('<|im_end|>')
+load:   - 248063 ('<|fim_pad|>')
+load:   - 248064 ('<|repo_name|>')
+load:   - 248065 ('<|file_sep|>')
+load: special tokens cache size = 33
+load: token to piece cache size = 1.7581 MB
+print_info: arch                  = qwen35
+print_info: vocab_only            = 0
+print_info: no_alloc              = 0
+print_info: n_ctx_train           = 262144
+print_info: n_embd                = 5120
+print_info: n_embd_inp            = 5120
+print_info: n_layer               = 64
+print_info: n_head                = 24
+print_info: n_head_kv             = 4
+print_info: n_rot                 = 64
+print_info: n_swa                 = 0
+print_info: is_swa_any            = 0
+print_info: n_embd_head_k         = 256
+print_info: n_embd_head_v         = 256
+print_info: n_gqa                 = 6
+print_info: n_embd_k_gqa          = 1024
+print_info: n_embd_v_gqa          = 1024
+print_info: f_norm_eps            = 0.0e+00
+print_info: f_norm_rms_eps        = 1.0e-06
+print_info: f_clamp_kqv           = 0.0e+00
+print_info: f_max_alibi_bias      = 0.0e+00
+print_info: f_logit_scale         = 0.0e+00
+print_info: f_attn_scale          = 0.0e+00
+print_info: n_ff                  = 17408
+print_info: n_expert              = 0
+print_info: n_expert_used         = 0
+print_info: n_expert_groups       = 0
+print_info: n_group_used          = 0
+print_info: causal attn           = 1
+print_info: pooling type          = 0
+print_info: rope type             = 40
+print_info: rope scaling          = linear
+print_info: freq_base_train       = 10000000.0
+print_info: freq_scale_train      = 1
+print_info: n_ctx_orig_yarn       = 262144
+print_info: rope_yarn_log_mul     = 0.0000
+print_info: rope_finetuned        = unknown
+print_info: mrope sections        = [11, 11, 10, 0]
+print_info: ssm_d_conv            = 4
+print_info: ssm_d_inner           = 6144
+print_info: ssm_d_state           = 128
+print_info: ssm_dt_rank           = 48
+print_info: ssm_n_group           = 16
+print_info: ssm_dt_b_c_rms        = 0
+print_info: model type            = 27B
+print_info: model params          = 26.90 B
+print_info: general.name          = Opus v2 Source
+print_info: vocab type            = BPE
+print_info: n_vocab               = 248320
+print_info: n_merges              = 247587
+print_info: BOS token             = 11 ','
+print_info: EOS token             = 248046 '<|im_end|>'
+print_info: EOT token             = 248046 '<|im_end|>'
+print_info: PAD token             = 248044 '<|endoftext|>'
+print_info: LF token              = 198 'Ċ'
+print_info: FIM PRE token         = 248060 '<|fim_prefix|>'
+print_info: FIM SUF token         = 248062 '<|fim_suffix|>'
+print_info: FIM MID token         = 248061 '<|fim_middle|>'
+print_info: FIM PAD token         = 248063 '<|fim_pad|>'
+print_info: FIM REP token         = 248064 '<|repo_name|>'
+print_info: FIM SEP token         = 248065 '<|file_sep|>'
+print_info: EOG token             = 248044 '<|endoftext|>'
+print_info: EOG token             = 248046 '<|im_end|>'
+print_info: EOG token             = 248063 '<|fim_pad|>'
+print_info: EOG token             = 248064 '<|repo_name|>'
+print_info: EOG token             = 248065 '<|file_sep|>'
+print_info: max token length      = 256
+load_tensors: loading model tensors, this can take a while... (mmap = true, direct_io = false)
+load_tensors: offloading output layer to GPU
+load_tensors: offloading 63 repeating layers to GPU
+load_tensors: offloaded 65/65 layers to GPU
+load_tensors:   CPU_Mapped model buffer size =   994.63 MiB
+load_tensors:        CUDA0 model buffer size = 20054.43 MiB
+.............................................................................................
+common_init_result: added <|endoftext|> logit bias = -inf
+common_init_result: added <|im_end|> logit bias = -inf
+common_init_result: added <|fim_pad|> logit bias = -inf
+common_init_result: added <|repo_name|> logit bias = -inf
+common_init_result: added <|file_sep|> logit bias = -inf
+llama_context: constructing llama_context
+llama_context: n_seq_max     = 4
+llama_context: n_ctx         = 2048
+llama_context: n_ctx_seq     = 512
+llama_context: n_batch       = 2048
+llama_context: n_ubatch      = 512
+llama_context: causal_attn   = 1
+llama_context: flash_attn    = enabled
+llama_context: kv_unified    = false
+llama_context: freq_base     = 10000000.0
+llama_context: freq_scale    = 1
+llama_context: n_ctx_seq (512) < n_ctx_train (262144) -- the full capacity of the model will not be utilized
+llama_context:  CUDA_Host  output buffer size =     3.79 MiB
+llama_kv_cache:      CUDA0 KV buffer size =    68.00 MiB
+llama_kv_cache: size =   68.00 MiB (   512 cells,  16 layers,  4/4 seqs), K (q8_0):   34.00 MiB, V (q8_0):   34.00 MiB
+llama_memory_recurrent:      CUDA0 RS buffer size =   598.50 MiB
+llama_memory_recurrent: size =  598.50 MiB (     4 cells,  64 layers,  4 seqs), R (f32):   22.50 MiB, S (f32):  576.00 MiB
+sched_reserve: reserving ...
+sched_reserve: resolving fused Gated Delta Net support:
+sched_reserve: fused Gated Delta Net (autoregressive) enabled
+sched_reserve: fused Gated Delta Net (chunked) enabled
+sched_reserve:      CUDA0 compute buffer size =   505.00 MiB
+sched_reserve:  CUDA_Host compute buffer size =    21.02 MiB
+sched_reserve: graph nodes  = 3689
+sched_reserve: graph splits = 2
+sched_reserve: reserve took 16.43 ms, sched copies = 1
+common_init_from_params: warming up the model with an empty run - please wait ... (--no-warmup to disable)
+
+system_info: n_threads = 16 (n_threads_batch = 16) / 32 | CUDA : ARCHS = 1200 | USE_GRAPHS = 1 | PEER_MAX_BATCH_SIZE = 128 | BLACKWELL_NATIVE_FP4 = 1 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX_VNNI = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | AVX512 = 1 | AVX512_VBMI = 1 | AVX512_VNNI = 1 | AVX512_BF16 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 | 
+perplexity: tokenizing the input ..
+perplexity: tokenization took 352.237 ms
+perplexity: calculating perplexity over 8 chunks, n_ctx=512, batch_size=2048, n_seq=4
+perplexity: 1.42 seconds per pass - ETA 0.03 minutes
+[1]4.3632,[2]6.1429,[3]5.9874,[4]6.0162,[5]5.9333,[6]6.1493,[7]6.2840,[8]6.7590,
+Final estimate: PPL = 6.7590 +/- 0.37211
+
+llama_perf_context_print:        load time =    2105.94 ms
+llama_perf_context_print: prompt eval time =     688.75 ms /  4096 tokens (    0.17 ms per token,  5947.01 tokens per second)
+llama_perf_context_print:        eval time =       0.00 ms /     1 runs   (    0.00 ms per token,      inf tokens per second)
+llama_perf_context_print:       total time =    2617.86 ms /  4097 tokens
+llama_perf_context_print:    graphs reused =          2
+llama_memory_breakdown_print: | memory breakdown [MiB] | total   free     self   model   context   compute    unaccounted |
+llama_memory_breakdown_print: |   - CUDA0 (RTX 5090)   | 32606 = 9519 + (21225 = 20054 +     666 +     505) +        1861 |
+llama_memory_breakdown_print: |   - Host               |                  1015 =   994 +       0 +      21                |
+[PPL_END] label="q8_0 PPL (8 chunks)"
+
+--- turbo3 PPL (8 chunks) ---
+[PPL_START] label="turbo3 PPL (8 chunks)" ctk=turbo3 ctv=turbo3 chunks=8 timestamp=2026-03-27T16:35:31Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+build: 8538 (291d29a04) with GNU 13.3.0 for Linux x86_64
+common_init_result: fitting params to device memory, for bugs during this step try to reproduce them with -fit off, or provide --verbose logs if the bug only occurs with -fit on
+llama_params_fit_impl: projected to use 21190 MiB of device memory vs. 30241 MiB of free device memory
+llama_params_fit_impl: will leave 9050 >= 1024 MiB of free device memory, no changes needed
+llama_params_fit: successfully fit params to free device memory
+llama_params_fit: fitting params to free memory took 0.38 seconds
+llama_model_load_from_file_impl: using device CUDA0 (NVIDIA GeForce RTX 5090) (0000:01:00.0) - 30841 MiB free
+llama_model_loader: loaded meta data with 49 key-value pairs and 851 tensors from ~/ai/turboquant/models/opus-v2-Q6_K.gguf (version GGUF V3 (latest))
+llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+llama_model_loader: - kv   0:                       general.architecture str              = qwen35
+llama_model_loader: - kv   1:                               general.type str              = model
+llama_model_loader: - kv   2:                               general.name str              = Opus v2 Source
+llama_model_loader: - kv   3:                         general.size_label str              = 27B
+llama_model_loader: - kv   4:                            general.license str              = apache-2.0
+llama_model_loader: - kv   5:                   general.base_model.count u32              = 1
+llama_model_loader: - kv   6:                  general.base_model.0.name str              = Qwen3.5 27B
+llama_model_loader: - kv   7:          general.base_model.0.organization str              = Qwen
+llama_model_loader: - kv   8:              general.base_model.0.repo_url str              = https://huggingface.co/Qwen/Qwen3.5-27B
+llama_model_loader: - kv   9:                      general.dataset.count u32              = 3
+llama_model_loader: - kv  10:                     general.dataset.0.name str              = Opus 4.6 Reasoning 3000x Filtered
+llama_model_loader: - kv  11:             general.dataset.0.organization str              = Nohurry
+llama_model_loader: - kv  12:                 general.dataset.0.repo_url str              = https://huggingface.co/nohurry/Opus-4...
+llama_model_loader: - kv  13:                     general.dataset.1.name str              = Qwen3.5 Reasoning 700x
+llama_model_loader: - kv  14:             general.dataset.1.organization str              = Jackrong
+llama_model_loader: - kv  15:                 general.dataset.1.repo_url str              = https://huggingface.co/Jackrong/Qwen3...
+llama_model_loader: - kv  16:                     general.dataset.2.name str              = Claude Opus 4.6 10000x
+llama_model_loader: - kv  17:             general.dataset.2.organization str              = Roman1111111
+llama_model_loader: - kv  18:                 general.dataset.2.repo_url str              = https://huggingface.co/Roman1111111/c...
+llama_model_loader: - kv  19:                               general.tags arr[str,7]       = ["unsloth", "qwen", "qwen3.5", "reaso...
+llama_model_loader: - kv  20:                          general.languages arr[str,3]       = ["en", "zh", "ko"]
+llama_model_loader: - kv  21:                         qwen35.block_count u32              = 64
+llama_model_loader: - kv  22:                      qwen35.context_length u32              = 262144
+llama_model_loader: - kv  23:                    qwen35.embedding_length u32              = 5120
+llama_model_loader: - kv  24:                 qwen35.feed_forward_length u32              = 17408
+llama_model_loader: - kv  25:                qwen35.attention.head_count u32              = 24
+llama_model_loader: - kv  26:             qwen35.attention.head_count_kv u32              = 4
+llama_model_loader: - kv  27:             qwen35.rope.dimension_sections arr[i32,4]       = [11, 11, 10, 0]
+llama_model_loader: - kv  28:                      qwen35.rope.freq_base f32              = 10000000.000000
+llama_model_loader: - kv  29:    qwen35.attention.layer_norm_rms_epsilon f32              = 0.000001
+llama_model_loader: - kv  30:                qwen35.attention.key_length u32              = 256
+llama_model_loader: - kv  31:              qwen35.attention.value_length u32              = 256
+llama_model_loader: - kv  32:                     qwen35.ssm.conv_kernel u32              = 4
+llama_model_loader: - kv  33:                      qwen35.ssm.state_size u32              = 128
+llama_model_loader: - kv  34:                     qwen35.ssm.group_count u32              = 16
+llama_model_loader: - kv  35:                  qwen35.ssm.time_step_rank u32              = 48
+llama_model_loader: - kv  36:                      qwen35.ssm.inner_size u32              = 6144
+llama_model_loader: - kv  37:             qwen35.full_attention_interval u32              = 4
+llama_model_loader: - kv  38:                qwen35.rope.dimension_count u32              = 64
+llama_model_loader: - kv  39:                       tokenizer.ggml.model str              = gpt2
+llama_model_loader: - kv  40:                         tokenizer.ggml.pre str              = qwen35
+llama_model_loader: - kv  41:                      tokenizer.ggml.tokens arr[str,248320]  = ["!", "\"", "#", "$", "%", "&", "'", ...
+llama_model_loader: - kv  42:                  tokenizer.ggml.token_type arr[i32,248320]  = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ...
+llama_model_loader: - kv  43:                      tokenizer.ggml.merges arr[str,247587]  = ["Ġ Ġ", "ĠĠ ĠĠ", "i n", "Ġ t",...
+llama_model_loader: - kv  44:                tokenizer.ggml.eos_token_id u32              = 248046
+llama_model_loader: - kv  45:            tokenizer.ggml.padding_token_id u32              = 248044
+llama_model_loader: - kv  46:                    tokenizer.chat_template str              = {%- if tools %}\n    {{- '<|im_start|>...
+llama_model_loader: - kv  47:               general.quantization_version u32              = 2
+llama_model_loader: - kv  48:                          general.file_type u32              = 18
+llama_model_loader: - type  f32:  353 tensors
+llama_model_loader: - type q6_K:  498 tensors
+print_info: file format = GGUF V3 (latest)
+print_info: file type   = Q6_K
+print_info: file size   = 20.56 GiB (6.57 BPW) 
+load: 0 unused tokens
+load: printing all EOG tokens:
+load:   - 248044 ('<|endoftext|>')
+load:   - 248046 ('<|im_end|>')
+load:   - 248063 ('<|fim_pad|>')
+load:   - 248064 ('<|repo_name|>')
+load:   - 248065 ('<|file_sep|>')
+load: special tokens cache size = 33
+load: token to piece cache size = 1.7581 MB
+print_info: arch                  = qwen35
+print_info: vocab_only            = 0
+print_info: no_alloc              = 0
+print_info: n_ctx_train           = 262144
+print_info: n_embd                = 5120
+print_info: n_embd_inp            = 5120
+print_info: n_layer               = 64
+print_info: n_head                = 24
+print_info: n_head_kv             = 4
+print_info: n_rot                 = 64
+print_info: n_swa                 = 0
+print_info: is_swa_any            = 0
+print_info: n_embd_head_k         = 256
+print_info: n_embd_head_v         = 256
+print_info: n_gqa                 = 6
+print_info: n_embd_k_gqa          = 1024
+print_info: n_embd_v_gqa          = 1024
+print_info: f_norm_eps            = 0.0e+00
+print_info: f_norm_rms_eps        = 1.0e-06
+print_info: f_clamp_kqv           = 0.0e+00
+print_info: f_max_alibi_bias      = 0.0e+00
+print_info: f_logit_scale         = 0.0e+00
+print_info: f_attn_scale          = 0.0e+00
+print_info: n_ff                  = 17408
+print_info: n_expert              = 0
+print_info: n_expert_used         = 0
+print_info: n_expert_groups       = 0
+print_info: n_group_used          = 0
+print_info: causal attn           = 1
+print_info: pooling type          = 0
+print_info: rope type             = 40
+print_info: rope scaling          = linear
+print_info: freq_base_train       = 10000000.0
+print_info: freq_scale_train      = 1
+print_info: n_ctx_orig_yarn       = 262144
+print_info: rope_yarn_log_mul     = 0.0000
+print_info: rope_finetuned        = unknown
+print_info: mrope sections        = [11, 11, 10, 0]
+print_info: ssm_d_conv            = 4
+print_info: ssm_d_inner           = 6144
+print_info: ssm_d_state           = 128
+print_info: ssm_dt_rank           = 48
+print_info: ssm_n_group           = 16
+print_info: ssm_dt_b_c_rms        = 0
+print_info: model type            = 27B
+print_info: model params          = 26.90 B
+print_info: general.name          = Opus v2 Source
+print_info: vocab type            = BPE
+print_info: n_vocab               = 248320
+print_info: n_merges              = 247587
+print_info: BOS token             = 11 ','
+print_info: EOS token             = 248046 '<|im_end|>'
+print_info: EOT token             = 248046 '<|im_end|>'
+print_info: PAD token             = 248044 '<|endoftext|>'
+print_info: LF token              = 198 'Ċ'
+print_info: FIM PRE token         = 248060 '<|fim_prefix|>'
+print_info: FIM SUF token         = 248062 '<|fim_suffix|>'
+print_info: FIM MID token         = 248061 '<|fim_middle|>'
+print_info: FIM PAD token         = 248063 '<|fim_pad|>'
+print_info: FIM REP token         = 248064 '<|repo_name|>'
+print_info: FIM SEP token         = 248065 '<|file_sep|>'
+print_info: EOG token             = 248044 '<|endoftext|>'
+print_info: EOG token             = 248046 '<|im_end|>'
+print_info: EOG token             = 248063 '<|fim_pad|>'
+print_info: EOG token             = 248064 '<|repo_name|>'
+print_info: EOG token             = 248065 '<|file_sep|>'
+print_info: max token length      = 256
+load_tensors: loading model tensors, this can take a while... (mmap = true, direct_io = false)
+load_tensors: offloading output layer to GPU
+load_tensors: offloading 63 repeating layers to GPU
+load_tensors: offloaded 65/65 layers to GPU
+load_tensors:   CPU_Mapped model buffer size =   994.63 MiB
+load_tensors:        CUDA0 model buffer size = 20054.43 MiB
+.............................................................................................
+common_init_result: added <|endoftext|> logit bias = -inf
+common_init_result: added <|im_end|> logit bias = -inf
+common_init_result: added <|fim_pad|> logit bias = -inf
+common_init_result: added <|repo_name|> logit bias = -inf
+common_init_result: added <|file_sep|> logit bias = -inf
+llama_context: constructing llama_context
+llama_context: n_seq_max     = 4
+llama_context: n_ctx         = 2048
+llama_context: n_ctx_seq     = 512
+llama_context: n_batch       = 2048
+llama_context: n_ubatch      = 512
+llama_context: causal_attn   = 1
+llama_context: flash_attn    = enabled
+llama_context: kv_unified    = false
+llama_context: freq_base     = 10000000.0
+llama_context: freq_scale    = 1
+llama_context: n_ctx_seq (512) < n_ctx_train (262144) -- the full capacity of the model will not be utilized
+llama_context:  CUDA_Host  output buffer size =     3.79 MiB
+llama_kv_cache:      CUDA0 KV buffer size =    32.12 MiB
+llama_kv_cache: TurboQuant rotation matrices initialized (128x128)
+llama_kv_cache: size =   32.00 MiB (   512 cells,  16 layers,  4/4 seqs), K (turbo3):   16.00 MiB, V (turbo3):   16.00 MiB
+llama_memory_recurrent:      CUDA0 RS buffer size =   598.50 MiB
+llama_memory_recurrent: size =  598.50 MiB (     4 cells,  64 layers,  4 seqs), R (f32):   22.50 MiB, S (f32):  576.00 MiB
+sched_reserve: reserving ...
+sched_reserve: resolving fused Gated Delta Net support:
+sched_reserve: fused Gated Delta Net (autoregressive) enabled
+sched_reserve: fused Gated Delta Net (chunked) enabled
+sched_reserve:      CUDA0 compute buffer size =   505.00 MiB
+sched_reserve:  CUDA_Host compute buffer size =    21.02 MiB
+sched_reserve: graph nodes  = 3721
+sched_reserve: graph splits = 2
+sched_reserve: reserve took 16.56 ms, sched copies = 1
+common_init_from_params: warming up the model with an empty run - please wait ... (--no-warmup to disable)
+
+system_info: n_threads = 16 (n_threads_batch = 16) / 32 | CUDA : ARCHS = 1200 | USE_GRAPHS = 1 | PEER_MAX_BATCH_SIZE = 128 | BLACKWELL_NATIVE_FP4 = 1 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX_VNNI = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | AVX512 = 1 | AVX512_VBMI = 1 | AVX512_VNNI = 1 | AVX512_BF16 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 | 
+perplexity: tokenizing the input ..
+perplexity: tokenization took 356.131 ms
+perplexity: calculating perplexity over 8 chunks, n_ctx=512, batch_size=2048, n_seq=4
+perplexity: 1.64 seconds per pass - ETA 0.05 minutes
+[1]4.4002,[2]6.2328,[3]6.1025,[4]6.1230,[5]6.0446,[6]6.2442,[7]6.3837,[8]6.8544,
+Final estimate: PPL = 6.8544 +/- 0.37824
+
+llama_perf_context_print:        load time =    2285.58 ms
+llama_perf_context_print: prompt eval time =     907.52 ms /  4096 tokens (    0.22 ms per token,  4513.39 tokens per second)
+llama_perf_context_print:        eval time =       0.00 ms /     1 runs   (    0.00 ms per token,      inf tokens per second)
+llama_perf_context_print:       total time =    3082.64 ms /  4097 tokens
+llama_perf_context_print:    graphs reused =          2
+llama_memory_breakdown_print: | memory breakdown [MiB] | total   free     self   model   context   compute    unaccounted |
+llama_memory_breakdown_print: |   - CUDA0 (RTX 5090)   | 32606 = 9301 + (21190 = 20054 +     630 +     505) +        2115 |
+llama_memory_breakdown_print: |   - Host               |                  1015 =   994 +       0 +      21                |
+[PPL_END] label="turbo3 PPL (8 chunks)"
+
+--- turbo3 mode2 PPL (8 chunks) ---
+[PPL_START] label="turbo3 mode2 PPL (8 chunks)" ctk=turbo3 ctv=turbo3 chunks=8 timestamp=2026-03-27T16:35:38Z
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32606 MiB):
+  Device 0: NVIDIA GeForce RTX 5090, compute capability 12.0, VMM: yes, VRAM: 32606 MiB
+build: 8538 (291d29a04) with GNU 13.3.0 for Linux x86_64
+common_init_result: fitting params to device memory, for bugs during this step try to reproduce them with -fit off, or provide --verbose logs if the bug only occurs with -fit on
+llama_params_fit_impl: projected to use 21194 MiB of device memory vs. 30241 MiB of free device memory
+llama_params_fit_impl: will leave 9046 >= 1024 MiB of free device memory, no changes needed
+llama_params_fit: successfully fit params to free device memory
+llama_params_fit: fitting params to free memory took 0.64 seconds
+llama_model_load_from_file_impl: using device CUDA0 (NVIDIA GeForce RTX 5090) (0000:01:00.0) - 30841 MiB free
+llama_model_loader: loaded meta data with 49 key-value pairs and 851 tensors from ~/ai/turboquant/models/opus-v2-Q6_K.gguf (version GGUF V3 (latest))
+llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+llama_model_loader: - kv   0:                       general.architecture str              = qwen35
+llama_model_loader: - kv   1:                               general.type str              = model
+llama_model_loader: - kv   2:                               general.name str              = Opus v2 Source
+llama_model_loader: - kv   3:                         general.size_label str              = 27B
+llama_model_loader: - kv   4:                            general.license str              = apache-2.0
+llama_model_loader: - kv   5:                   general.base_model.count u32              = 1
+llama_model_loader: - kv   6:                  general.base_model.0.name str              = Qwen3.5 27B
+llama_model_loader: - kv   7:          general.base_model.0.organization str              = Qwen
+llama_model_loader: - kv   8:              general.base_model.0.repo_url str              = https://huggingface.co/Qwen/Qwen3.5-27B
+llama_model_loader: - kv   9:                      general.dataset.count u32              = 3
+llama_model_loader: - kv  10:                     general.dataset.0.name str              = Opus 4.6 Reasoning 3000x Filtered
+llama_model_loader: - kv  11:             general.dataset.0.organization str              = Nohurry
+llama_model_loader: - kv  12:                 general.dataset.0.repo_url str              = https://huggingface.co/nohurry/Opus-4...
+llama_model_loader: - kv  13:                     general.dataset.1.name str              = Qwen3.5 Reasoning 700x
+llama_model_loader: - kv  14:             general.dataset.1.organization str              = Jackrong
+llama_model_loader: - kv  15:                 general.dataset.1.repo_url str              = https://huggingface.co/Jackrong/Qwen3...
+llama_model_loader: - kv  16:                     general.dataset.2.name str              = Claude Opus 4.6 10000x
+llama_model_loader: - kv  17:             general.dataset.2.organization str              = Roman1111111
+llama_model_loader: - kv  18:                 general.dataset.2.repo_url str              = https://huggingface.co/Roman1111111/c...
+llama_model_loader: - kv  19:                               general.tags arr[str,7]       = ["unsloth", "qwen", "qwen3.5", "reaso...
+llama_model_loader: - kv  20:                          general.languages arr[str,3]       = ["en", "zh", "ko"]
+llama_model_loader: - kv  21:                         qwen35.block_count u32              = 64
+llama_model_loader: - kv  22:                      qwen35.context_length u32              = 262144
+llama_model_loader: - kv  23:                    qwen35.embedding_length u32              = 5120
+llama_model_loader: - kv  24:                 qwen35.feed_forward_length u32              = 17408
+llama_model_loader: - kv  25:                qwen35.attention.head_count u32              = 24
+llama_model_loader: - kv  26:             qwen35.attention.head_count_kv u32              = 4
+llama_model_loader: - kv  27:             qwen35.rope.dimension_sections arr[i32,4]       = [11, 11, 10, 0]
+llama_model_loader: - kv  28:                      qwen35.rope.freq_base f32              = 10000000.000000
+llama_model_loader: - kv  29:    qwen35.attention.layer_norm_rms_epsilon f32              = 0.000001
+llama_model_loader: - kv  30:                qwen35.attention.key_length u32              = 256
+llama_model_loader: - kv  31:              qwen35.attention.value_length u32              = 256
+llama_model_loader: - kv  32:                     qwen35.ssm.conv_kernel u32              = 4
+llama_model_loader: - kv  33:                      qwen35.ssm.state_size u32              = 128
+llama_model_loader: - kv  34:                     qwen35.ssm.group_count u32              = 16
+llama_model_loader: - kv  35:                  qwen35.ssm.time_step_rank u32              = 48
+llama_model_loader: - kv  36:                      qwen35.ssm.inner_size u32              = 6144
+llama_model_loader: - kv  37:             qwen35.full_attention_interval u32              = 4
+llama_model_loader: - kv  38:                qwen35.rope.dimension_count u32              = 64
+llama_model_loader: - kv  39:                       tokenizer.ggml.model str              = gpt2
+llama_model_loader: - kv  40:                         tokenizer.ggml.pre str              = qwen35
+llama_model_loader: - kv  41:                      tokenizer.ggml.tokens arr[str,248320]  = ["!", "\"", "#", "$", "%", "&", "'", ...
+llama_model_loader: - kv  42:                  tokenizer.ggml.token_type arr[i32,248320]  = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ...
+llama_model_loader: - kv  43:                      tokenizer.ggml.merges arr[str,247587]  = ["Ġ Ġ", "ĠĠ ĠĠ", "i n", "Ġ t",...
+llama_model_loader: - kv  44:                tokenizer.ggml.eos_token_id u32              = 248046
+llama_model_loader: - kv  45:            tokenizer.ggml.padding_token_id u32              = 248044
+llama_model_loader: - kv  46:                    tokenizer.chat_template str              = {%- if tools %}\n    {{- '<|im_start|>...
+llama_model_loader: - kv  47:               general.quantization_version u32              = 2
+llama_model_loader: - kv  48:                          general.file_type u32              = 18
+llama_model_loader: - type  f32:  353 tensors
+llama_model_loader: - type q6_K:  498 tensors
+print_info: file format = GGUF V3 (latest)
+print_info: file type   = Q6_K
+print_info: file size   = 20.56 GiB (6.57 BPW) 
+load: 0 unused tokens
+load: printing all EOG tokens:
+load:   - 248044 ('<|endoftext|>')
+load:   - 248046 ('<|im_end|>')
+load:   - 248063 ('<|fim_pad|>')
+load:   - 248064 ('<|repo_name|>')
+load:   - 248065 ('<|file_sep|>')
+load: special tokens cache size = 33
+load: token to piece cache size = 1.7581 MB
+print_info: arch                  = qwen35
+print_info: vocab_only            = 0
+print_info: no_alloc              = 0
+print_info: n_ctx_train           = 262144
+print_info: n_embd                = 5120
+print_info: n_embd_inp            = 5120
+print_info: n_layer               = 64
+print_info: n_head                = 24
+print_info: n_head_kv             = 4
+print_info: n_rot                 = 64
+print_info: n_swa                 = 0
+print_info: is_swa_any            = 0
+print_info: n_embd_head_k         = 256
+print_info: n_embd_head_v         = 256
+print_info: n_gqa                 = 6
+print_info: n_embd_k_gqa          = 1024
+print_info: n_embd_v_gqa          = 1024
+print_info: f_norm_eps            = 0.0e+00
+print_info: f_norm_rms_eps        = 1.0e-06
+print_info: f_clamp_kqv           = 0.0e+00
+print_info: f_max_alibi_bias      = 0.0e+00
+print_info: f_logit_scale         = 0.0e+00
+print_info: f_attn_scale          = 0.0e+00
+print_info: n_ff                  = 17408
+print_info: n_expert              = 0
+print_info: n_expert_used         = 0
+print_info: n_expert_groups       = 0
+print_info: n_group_used          = 0
+print_info: causal attn           = 1
+print_info: pooling type          = 0
+print_info: rope type             = 40
+print_info: rope scaling          = linear
+print_info: freq_base_train       = 10000000.0
+print_info: freq_scale_train      = 1
+print_info: n_ctx_orig_yarn       = 262144
+print_info: rope_yarn_log_mul     = 0.0000
+print_info: rope_finetuned        = unknown
+print_info: mrope sections        = [11, 11, 10, 0]
+print_info: ssm_d_conv            = 4
+print_info: ssm_d_inner           = 6144
+print_info: ssm_d_state           = 128
+print_info: ssm_dt_rank           = 48
+print_info: ssm_n_group           = 16
+print_info: ssm_dt_b_c_rms        = 0
+print_info: model type            = 27B
+print_info: model params          = 26.90 B
+print_info: general.name          = Opus v2 Source
+print_info: vocab type            = BPE
+print_info: n_vocab               = 248320
+print_info: n_merges              = 247587
+print_info: BOS token             = 11 ','
+print_info: EOS token             = 248046 '<|im_end|>'
+print_info: EOT token             = 248046 '<|im_end|>'
+print_info: PAD token             = 248044 '<|endoftext|>'
+print_info: LF token              = 198 'Ċ'
+print_info: FIM PRE token         = 248060 '<|fim_prefix|>'
+print_info: FIM SUF token         = 248062 '<|fim_suffix|>'
+print_info: FIM MID token         = 248061 '<|fim_middle|>'
+print_info: FIM PAD token         = 248063 '<|fim_pad|>'
+print_info: FIM REP token         = 248064 '<|repo_name|>'
+print_info: FIM SEP token         = 248065 '<|file_sep|>'
+print_info: EOG token             = 248044 '<|endoftext|>'
+print_info: EOG token             = 248046 '<|im_end|>'
+print_info: EOG token             = 248063 '<|fim_pad|>'
+print_info: EOG token             = 248064 '<|repo_name|>'
+print_info: EOG token             = 248065 '<|file_sep|>'
+print_info: max token length      = 256
+load_tensors: loading model tensors, this can take a while... (mmap = true, direct_io = false)
+load_tensors: offloading output layer to GPU
+load_tensors: offloading 63 repeating layers to GPU
+load_tensors: offloaded 65/65 layers to GPU
+load_tensors:   CPU_Mapped model buffer size =   994.63 MiB
+load_tensors:        CUDA0 model buffer size = 20054.43 MiB
+.............................................................................................
+common_init_result: added <|endoftext|> logit bias = -inf
+common_init_result: added <|im_end|> logit bias = -inf
+common_init_result: added <|fim_pad|> logit bias = -inf
+common_init_result: added <|repo_name|> logit bias = -inf
+common_init_result: added <|file_sep|> logit bias = -inf
+llama_context: constructing llama_context
+llama_context: n_seq_max     = 4
+llama_context: n_ctx         = 2048
+llama_context: n_ctx_seq     = 512
+llama_context: n_batch       = 2048
+llama_context: n_ubatch      = 512
+llama_context: causal_attn   = 1
+llama_context: flash_attn    = enabled
+llama_context: kv_unified    = false
+llama_context: freq_base     = 10000000.0
+llama_context: freq_scale    = 1
+llama_context: n_ctx_seq (512) < n_ctx_train (262144) -- the full capacity of the model will not be utilized
+llama_context:  CUDA_Host  output buffer size =     3.79 MiB
+llama_kv_cache: layer 59 promoted to q8_0 (LA mode 2)
+llama_kv_cache: layer 63 promoted to q8_0 (LA mode 2)
+llama_kv_cache:      CUDA0 KV buffer size =    36.62 MiB
+llama_kv_cache: TurboQuant rotation matrices initialized (128x128)
+llama_kv_cache: size =   36.50 MiB (   512 cells,  16 layers,  4/4 seqs), K (turbo3):   18.25 MiB, V (turbo3):   18.25 MiB
+llama_memory_recurrent:      CUDA0 RS buffer size =   598.50 MiB
+llama_memory_recurrent: size =  598.50 MiB (     4 cells,  64 layers,  4 seqs), R (f32):   22.50 MiB, S (f32):  576.00 MiB
+sched_reserve: reserving ...
+sched_reserve: resolving fused Gated Delta Net support:
+sched_reserve: fused Gated Delta Net (autoregressive) enabled
+sched_reserve: fused Gated Delta Net (chunked) enabled
+sched_reserve:      CUDA0 compute buffer size =   505.00 MiB
+sched_reserve:  CUDA_Host compute buffer size =    21.02 MiB
+sched_reserve: graph nodes  = 3717
+sched_reserve: graph splits = 2
+sched_reserve: reserve took 16.57 ms, sched copies = 1
+common_init_from_params: warming up the model with an empty run - please wait ... (--no-warmup to disable)
+
+system_info: n_threads = 16 (n_threads_batch = 16) / 32 | CUDA : ARCHS = 1200 | USE_GRAPHS = 1 | PEER_MAX_BATCH_SIZE = 128 | BLACKWELL_NATIVE_FP4 = 1 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX_VNNI = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | AVX512 = 1 | AVX512_VBMI = 1 | AVX512_VNNI = 1 | AVX512_BF16 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 | 
+perplexity: tokenizing the input ..
+perplexity: tokenization took 398.666 ms
+perplexity: calculating perplexity over 8 chunks, n_ctx=512, batch_size=2048, n_seq=4
+perplexity: 1.61 seconds per pass - ETA 0.05 minutes
+[1]4.3891,[2]6.2041,[3]6.0820,[4]6.1040,[5]6.0247,[6]6.2241,[7]6.3571,[8]6.8300,
+Final estimate: PPL = 6.8300 +/- 0.37602
+
+llama_perf_context_print:        load time =   16610.71 ms
+llama_perf_context_print: prompt eval time =     862.37 ms /  4096 tokens (    0.21 ms per token,  4749.70 tokens per second)
+llama_perf_context_print:        eval time =       0.00 ms /     1 runs   (    0.00 ms per token,      inf tokens per second)
+llama_perf_context_print:       total time =    3021.20 ms /  4097 tokens
+llama_perf_context_print:    graphs reused =          2
+llama_memory_breakdown_print: | memory breakdown [MiB] | total   free     self   model   context   compute    unaccounted |
+llama_memory_breakdown_print: |   - CUDA0 (RTX 5090)   | 32606 = 9325 + (21194 = 20054 +     635 +     505) +        2087 |
+llama_memory_breakdown_print: |   - Host               |                  1015 =   994 +       0 +      21                |
+[PPL_END] label="turbo3 mode2 PPL (8 chunks)"
+
+================================================================
+  11. MEMORY BREAKDOWN
+================================================================
+
+
+--- KV cache at 32K context ---
+[WARNING] Memory check failed for KV cache at 32K context: Command '['~/ai/turboquant/research/llama-cpp-turboquant/build/bin/llama-cli', '-m', '~/ai/turboquant/models/opus-v2-Q6_K.gguf', '-ngl', '99', '-fa', 'on', '--cache-type-k', 'turbo3', '--cache-type-v', 'turbo3', '-c', '32768', '-n', '1', '-p', 'test', '--jinja']' timed out after 120 seconds
+
+--- KV cache at 131K context ---
+[WARNING] Memory check failed for KV cache at 131K context: Command '['~/ai/turboquant/research/llama-cpp-turboquant/build/bin/llama-cli', '-m', '~/ai/turboquant/models/opus-v2-Q6_K.gguf', '-ngl', '99', '-fa', 'on', '--cache-type-k', 'turbo3', '--cache-type-v', 'turbo3', '-c', '131072', '-n', '1', '-p', 'test', '--jinja']' timed out after 120 seconds
+
+--- q8_0 KV at 32K (for size comparison) ---
+[WARNING] Memory check failed for q8_0 KV at 32K (for size comparison): Command '['~/ai/turboquant/research/llama-cpp-turboquant/build/bin/llama-cli', '-m', '~/ai/turboquant/models/opus-v2-Q6_K.gguf', '-ngl', '99', '-fa', 'on', '--cache-type-k', 'q8_0', '--cache-type-v', 'q8_0', '-c', '32768', '-n', '1', '-p', 'test', '--jinja']' timed out after 120 seconds
+
+================================================================
+  12. SYSTEM LOAD (post-benchmark)
+================================================================
+
+Final load snapshot — compare with pre-benchmark to detect thermal throttling.
+
+[LOAD_SNAPSHOT] label=post_all_benchmarks timestamp=2026-03-27T16:42:22Z
+[LOAD_SNAPSHOT] load_avg=1.33 1.22 1.09
+[LOAD_SNAPSHOT] mem_free_mb=14490 mem_available_mb=36904
+[LOAD_SNAPSHOT] swap_total_mb=12288 swap_free_mb=12288
+[LOAD_SNAPSHOT] gpu_util=13 %, 837 MiB, 32607 MiB, 32
+[LOAD_SNAPSHOT] process_count=131
+
+--- Thermal throttling check ---
+
+================================================================
+  13. DIAGNOSTIC SUMMARY
+================================================================
+
+TURBO_DIAG_COMPLETE=true
+TURBO_DIAG_END_TIMESTAMP=2026-03-27T16:42:22Z
+
+NOTABLE FINDINGS: 4
+  [NOTABLE] Excellent decode ratio at 16384: 0.996x — near q8_0 parity at long context
+  [NOTABLE] Excellent decode ratio at 20480: 1.012x — near q8_0 parity at long context
+  [NOTABLE] Excellent decode ratio at 24576: 1.025x — near q8_0 parity at long context
+  [NOTABLE] Excellent decode ratio at 28672: 1.045x — near q8_0 parity at long context
+
+INVESTIGATE FURTHER: 6
+  [INVESTIGATE] turbo3 FASTER than q8_0 at 16384: 1.132x. Measurement error? System load changed between runs?
+  [INVESTIGATE] Decode IMPROVED at deeper context: 0.946x @ 8192 -> 1.132x @ 16384. Measurement noise or system load change?
+  [INVESTIGATE] turbo3 FASTER than q8_0 at 32768: 1.191x. Measurement error? System load changed between runs?
+  [INVESTIGATE] Decode IMPROVED at deeper context: 1.132x @ 16384 -> 1.191x @ 32768. Measurement noise or system load change?
+  [INVESTIGATE] Decode IMPROVED at deeper context: 0.659x @ 8192 -> 0.965x @ 12288. Measurement noise or system load change?
+  [INVESTIGATE] turbo3 FASTER than q8_0 at 32768: 1.070x. Measurement error? System load changed between runs?
+
+ANOMALIES DETECTED: 2
+  [ANOMALY] Steep decode degradation: 1.191x @ 32768 -> 0.945x @ 2048 (21% drop)
+  [ANOMALY] Steep decode degradation: 0.956x @ 6144 -> 0.659x @ 8192 (31% drop)
+
+============================================
+  HOW TO READ THESE RESULTS
+============================================
+
+1. MODEL: Section 3 confirms which model and quantization you're running.
+
+2. QUALITY: Section 10 PPL should be within 2% of q8_0.
+   If PPL is broken, ALL speed numbers are meaningless.
+
+3. PREFILL: Section 6 turbo3/q8_0 ratio should be flat 0.95-1.00x
+   across all depths. If it degrades = context scaling regression.
+
+4. DECODE: Section 7 is the critical metric.
+   Healthy (M5):  0.92x (short) -> 0.72x (48K) — gradual degradation
+   Problem (M1):  0.90x (short) -> 0.09x (42K) — constant cache thrashing
+
+5. INFLECTION POINT: Section 8 stress test shows the exact depth
+   where turbo3 decode starts falling off a cliff.
+
+6. THERMAL: Compare Sections 2 and 12. If CPU_Speed_Limit dropped
+   during the test, results may be artificially low.
+
+7. MEMORY: Section 11 shows KV cache sizing. If the system is near
+   its recommendedMaxWorkingSetSize, swap pressure kills decode.
+
+NEXT STEPS:
+  1. Open a GitHub issue: github.com/TheTom/turboquant_plus/issues
+     Title: 'Diagnostic: [your hardware]', attach the zip file.
+  2. Or DM @no_stp_on_snek on X/Twitter with the zip.
+  If decode ratio < 0.50x at any depth, use TURBO_LAYER_ADAPTIVE=2
+  or q8_0 cache until the M1 constant cache fix is available.
+
+END OF DIAGNOSTIC
+[MONITOR] Captured 181 samples in ~/ai/turboquant/research/llama-cpp-turboquant/benchmarks/community/turbo-monitor-20260327-091147.csv
+
+Packaging results...
+                                                                                                                                                                  
+============================================
+  DIAGNOSTIC PACKAGE READY
+============================================
+
+  Zip file: /home/erol/ai/turboquant/research/llama-cpp-turboquant/benchmarks/community/turbo-diag-20260327-091147.zip
+  Contents:
+    turbo-diag-20260327-091147.txt
+    turbo-monitor-20260327-091147.csv
+    turbo-hwprofile-20260327-091147.json
+
+  Share: github.com/TheTom/turboquant_plus/issues or DM @no_stp_on_snek on X
+
