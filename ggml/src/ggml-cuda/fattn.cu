@@ -56,6 +56,47 @@ static __global__ void k_turbo3_dequant_rows_f16(
 }
 
 
+// Multi-row dequant for turbo4 — same structure as turbo3 but with QJL residual.
+static __global__ void k_turbo4_dequant_rows_f16(
+        const char * __restrict__ src, half * __restrict__ dst,
+        const int64_t ne0,
+        const int64_t row_start, const int64_t n_rows,
+        const size_t  src_nb1,   const size_t  src_nb2,
+        const int64_t dst_row_stride, const int64_t dst_head_stride) {
+
+    const float C[8] = {
+        -0.190685f, -0.117832f, -0.065717f, -0.021460f,
+         0.021460f,  0.065717f,  0.117832f,  0.190685f
+    };
+
+    const int64_t local_row = blockIdx.x;
+    const int64_t head      = blockIdx.y;
+    const int j = threadIdx.x;
+    if (j >= ne0 || local_row >= n_rows) return;
+
+    const int64_t abs_row = row_start + local_row;
+    const char * src_row = src + head * src_nb2 + abs_row * src_nb1;
+    const int blk_idx  = j / QK_TURBO4;
+    const int j_in_blk = j % QK_TURBO4;
+    const block_turbo4_0 * blk = (const block_turbo4_0 *)src_row + blk_idx;
+
+    const float norm = __half2float(blk->norm);
+    const float rnorm = __half2float(blk->rnorm);
+    const float qjl_scale = 1.2533141f / 128.0f * rnorm;
+
+    int bit_offset = j_in_blk * 3;
+    int byte_idx = bit_offset / 8;
+    int bit_pos = bit_offset % 8;
+    uint16_t raw = (uint16_t)blk->qs[byte_idx];
+    if (byte_idx + 1 < 48) raw |= (uint16_t)blk->qs[byte_idx + 1] << 8;
+    uint8_t idx = (uint8_t)((raw >> bit_pos) & 0x7);
+
+    float s = (blk->signs[j_in_blk / 8] & (1 << (j_in_blk % 8))) ? 1.0f : -1.0f;
+    float val = (C[idx] + s * qjl_scale) * norm;
+
+    dst[head * dst_head_stride + abs_row * dst_row_stride + j] = __float2half(val);
+}
+
 struct turbo_fp16_shadow {
     half *   buf       = nullptr;
     int64_t  capacity  = 0;
@@ -105,11 +146,19 @@ static void turbo_shadow_sync(
         const int64_t dst_head_stride = ne0 * sh.capacity;
 
         dim3 grid((int)n_rows, (int)ne2);
-        k_turbo3_dequant_rows_f16<<<grid, (int)ne0, 0, stream>>>(
-            (const char *)T->data, sh.buf, ne0,
-            row_start, n_rows,
-            T->nb[1], T->nb[2],
-            dst_row_stride, dst_head_stride);
+        if (T->type == GGML_TYPE_TURBO4_0) {
+            k_turbo4_dequant_rows_f16<<<grid, (int)ne0, 0, stream>>>(
+                (const char *)T->data, sh.buf, ne0,
+                row_start, n_rows,
+                T->nb[1], T->nb[2],
+                dst_row_stride, dst_head_stride);
+        } else {
+            k_turbo3_dequant_rows_f16<<<grid, (int)ne0, 0, stream>>>(
+                (const char *)T->data, sh.buf, ne0,
+                row_start, n_rows,
+                T->nb[1], T->nb[2],
+                dst_row_stride, dst_head_stride);
+        }
     }
 
     sh.filled = ne1;
@@ -379,9 +428,10 @@ static void ggml_cuda_flash_attn_ext_vec(ggml_backend_cuda_context & ctx, ggml_t
     FATTN_VEC_CASES_ALL_D(GGML_TYPE_Q8_0, GGML_TYPE_Q8_0)
 #endif // GGML_CUDA_FA_ALL_QUANTS
 
-    // TurboQuant turbo3 FA (always available)
+    // TurboQuant FA (always available)
     FATTN_VEC_CASES_ALL_D(GGML_TYPE_TURBO3_0, GGML_TYPE_F16)
     FATTN_VEC_CASES_ALL_D(GGML_TYPE_TURBO3_0, GGML_TYPE_TURBO3_0)
+    FATTN_VEC_CASES_ALL_D(GGML_TYPE_TURBO4_0, GGML_TYPE_TURBO4_0)
 
     GGML_ABORT("fatal error");
 }
@@ -477,6 +527,7 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
         case GGML_TYPE_Q4_0:
         case GGML_TYPE_Q8_0:
         case GGML_TYPE_TURBO3_0:
+        case GGML_TYPE_TURBO4_0:
             break;
         default:
             return BEST_FATTN_KERNEL_NONE;
@@ -488,9 +539,9 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
 
     const bool can_use_vector_kernel = Q->ne[0] <= 256 && Q->ne[0] % 64 == 0 && K->ne[1] % FATTN_KQ_STRIDE == 0;
 
-    // TurboQuant: only the vec kernel has turbo3 dequant support.
-    // MMA/tile/WMMA kernels do NOT implement turbo3 and will produce wrong results.
-    if (K->type == GGML_TYPE_TURBO3_0 || V->type == GGML_TYPE_TURBO3_0) {
+    // TurboQuant: only the vec kernel has turbo dequant support.
+    if (K->type == GGML_TYPE_TURBO3_0 || V->type == GGML_TYPE_TURBO3_0 ||
+        K->type == GGML_TYPE_TURBO4_0 || V->type == GGML_TYPE_TURBO4_0) {
         if (can_use_vector_kernel) {
             return BEST_FATTN_KERNEL_VEC;
         }
@@ -603,8 +654,8 @@ void ggml_cuda_flash_attn_ext(ggml_backend_cuda_context & ctx, ggml_tensor * dst
     const ggml_tensor * K = dst->src[1];
     const ggml_tensor * V = dst->src[2];
 
-    const bool turbo_k = (K->type == GGML_TYPE_TURBO3_0);
-    const bool turbo_v = (V->type == GGML_TYPE_TURBO3_0);
+    const bool turbo_k = (K->type == GGML_TYPE_TURBO3_0 || K->type == GGML_TYPE_TURBO4_0);
+    const bool turbo_v = (V->type == GGML_TYPE_TURBO3_0 || V->type == GGML_TYPE_TURBO4_0);
     const bool turbo_kv = turbo_k || turbo_v;
 
     // For non-turbo types, go straight to the normal dispatch.
