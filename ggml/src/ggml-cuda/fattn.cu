@@ -6,6 +6,93 @@
 #include "fattn-wmma-f16.cuh"
 #include "fattn.cuh"
 
+// Forward declaration — defined further down after template instantiations.
+static void ggml_cuda_flash_attn_ext_mma_f16(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
+
+// Bulk dequantize turbo3 blocks to fp16 for prefill/decode paths.
+// Grid: (ne1, ne2) = (seq_len, n_heads), Block: ne0 threads (head_dim).
+static __global__ void k_turbo3_dequant_to_f16(
+        const char * __restrict__ src, half * __restrict__ dst,
+        const int64_t ne0, const int64_t ne1,
+        const size_t nb1, const size_t nb2) {
+
+    const float C[8] = {
+        -0.190685f, -0.117832f, -0.065717f, -0.021460f,
+         0.021460f,  0.065717f,  0.117832f,  0.190685f
+    };
+
+    const int64_t row  = blockIdx.x;
+    const int64_t head = blockIdx.y;
+    const int j = threadIdx.x;
+    if (j >= ne0) return;
+
+    const char * src_row = src + head * nb2 + row * nb1;
+    const int blk_idx  = j / QK_TURBO3;
+    const int j_in_blk = j % QK_TURBO3;
+    const block_turbo3_0 * blk = (const block_turbo3_0 *)src_row + blk_idx;
+
+    const float norm = __half2float(blk->norm);
+    const uint8_t low2 = (blk->qs[j_in_blk / 4] >> ((j_in_blk % 4) * 2)) & 0x3;
+    const uint8_t hi1  = (blk->signs[j_in_blk / 8] >> (j_in_blk % 8)) & 0x1;
+    const float val = C[low2 | (hi1 << 2)] * norm;
+
+    dst[head * (ne1 * ne0) + row * ne0 + j] = __float2half(val);
+}
+
+// Helper: allocate fp16 buffer and dequant a turbo3 tensor into it.
+// Returns the fp16 pointer (caller must cudaFreeAsync) and fills out f16_tensor.
+static half * turbo3_dequant_tensor_f16(
+        const ggml_tensor * T, ggml_tensor & T_f16, cudaStream_t stream) {
+
+    const size_t sz = T->ne[0] * T->ne[1] * T->ne[2] * sizeof(half);
+    half * buf = nullptr;
+    CUDA_CHECK(cudaMallocAsync(&buf, sz, stream));
+
+    dim3 grid(T->ne[1], T->ne[2]);
+    k_turbo3_dequant_to_f16<<<grid, (int)T->ne[0], 0, stream>>>(
+        (const char *)T->data, buf, T->ne[0], T->ne[1], T->nb[1], T->nb[2]);
+
+    T_f16        = *T;
+    T_f16.type   = GGML_TYPE_F16;
+    T_f16.data   = buf;
+    T_f16.nb[0]  = sizeof(half);
+    T_f16.nb[1]  = T->ne[0] * sizeof(half);
+    T_f16.nb[2]  = T->ne[0] * T->ne[1] * sizeof(half);
+    T_f16.nb[3]  = T->ne[0] * T->ne[1] * T->ne[2] * sizeof(half);
+
+    return buf;
+}
+
+// Turbo prefill path: bulk dequant K/V to fp16, run MMA attention.
+// Q rotation is already handled at graph level (ggml_turbo_wht in llama-graph.cpp).
+static void ggml_cuda_turbo_prefill_attend(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
+    cudaStream_t stream = ctx.stream();
+    ggml_tensor * K = dst->src[1];
+    ggml_tensor * V = dst->src[2];
+
+    half * k_fp16 = nullptr;
+    half * v_fp16 = nullptr;
+    ggml_tensor K_f16, V_f16;
+    ggml_tensor * orig_k = dst->src[1];
+    ggml_tensor * orig_v = dst->src[2];
+
+    if (K->type == GGML_TYPE_TURBO3_0) {
+        k_fp16 = turbo3_dequant_tensor_f16(K, K_f16, stream);
+        dst->src[1] = &K_f16;
+    }
+    if (V->type == GGML_TYPE_TURBO3_0) {
+        v_fp16 = turbo3_dequant_tensor_f16(V, V_f16, stream);
+        dst->src[2] = &V_f16;
+    }
+
+    ggml_cuda_flash_attn_ext_mma_f16(ctx, dst);
+
+    dst->src[1] = orig_k;
+    dst->src[2] = orig_v;
+    if (k_fp16) CUDA_CHECK(cudaFreeAsync(k_fp16, stream));
+    if (v_fp16) CUDA_CHECK(cudaFreeAsync(v_fp16, stream));
+}
+
 template <int DKQ, int DV, int ncols2>
 static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
     const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
@@ -487,6 +574,45 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
 
 void ggml_cuda_flash_attn_ext(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
     ggml_cuda_set_device(ctx.device);
+
+    const ggml_tensor * Q = dst->src[0];
+    const ggml_tensor * K = dst->src[1];
+    const ggml_tensor * V = dst->src[2];
+
+    const bool turbo_kv = (K->type == GGML_TYPE_TURBO3_0 || V->type == GGML_TYPE_TURBO3_0);
+    const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
+
+    // Prefill (Q->ne[1] > 1): dequant turbo3 K/V to fp16, use fast MMA kernel.
+    // Guard: only single-sequence (ne[3]==1) to avoid multi-seq KV layout issues.
+    if (turbo_kv && Q->ne[1] > 1 && Q->ne[3] == 1 && turing_mma_available(cc)) {
+        ggml_cuda_turbo_prefill_attend(ctx, dst);
+        return;
+    }
+
+    // Decode: dequant turbo3 K/V to fp16 so the vec kernel runs the optimized
+    // f16 path (eliminates bit-extract + centroid lookup, flattens context scaling).
+    // Guard: single-sequence only. Set GGML_TURBO_DECODE_NATIVE=1 to disable.
+    static const bool turbo_decode_native = (getenv("GGML_TURBO_DECODE_NATIVE") != nullptr);
+    const bool do_decode_dequant = turbo_kv && !turbo_decode_native && Q->ne[3] == 1;
+
+    cudaStream_t stream = ctx.stream();
+    half * k_fp16_dec = nullptr;
+    half * v_fp16_dec = nullptr;
+    ggml_tensor K_f16_dec, V_f16_dec;
+    ggml_tensor * orig_k = dst->src[1];
+    ggml_tensor * orig_v = dst->src[2];
+
+    if (do_decode_dequant) {
+        if (K->type == GGML_TYPE_TURBO3_0) {
+            k_fp16_dec = turbo3_dequant_tensor_f16(K, K_f16_dec, stream);
+            dst->src[1] = &K_f16_dec;
+        }
+        if (V->type == GGML_TYPE_TURBO3_0) {
+            v_fp16_dec = turbo3_dequant_tensor_f16(V, V_f16_dec, stream);
+            dst->src[2] = &V_f16_dec;
+        }
+    }
+
     switch (ggml_cuda_get_best_fattn_kernel(ggml_cuda_get_device(), dst)) {
         case BEST_FATTN_KERNEL_NONE:
             GGML_ABORT("fatal error");
@@ -503,6 +629,11 @@ void ggml_cuda_flash_attn_ext(ggml_backend_cuda_context & ctx, ggml_tensor * dst
             ggml_cuda_flash_attn_ext_mma_f16(ctx, dst);
             break;
     }
+
+    dst->src[1] = orig_k;
+    dst->src[2] = orig_v;
+    if (k_fp16_dec) CUDA_CHECK(cudaFreeAsync(k_fp16_dec, stream));
+    if (v_fp16_dec) CUDA_CHECK(cudaFreeAsync(v_fp16_dec, stream));
 }
 
 bool ggml_cuda_flash_attn_ext_supported(int device, const ggml_tensor * dst) {
