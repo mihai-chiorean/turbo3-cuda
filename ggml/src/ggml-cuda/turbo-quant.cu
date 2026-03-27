@@ -434,6 +434,141 @@ void ggml_cuda_op_set_rows_turbo3(
         src0_d, src1_d, dst_d, ne00, ne01, nb01, nb1, n_groups_per_row);
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+//  SET_ROWS for turbo4 — quantize with QJL cross-space residual
+//  Each thread processes one 128-element group (QK_TURBO4 = 128).
+// ═══════════════════════════════════════════════════════════════════════
+
+static __device__ __forceinline__ void turbo_fwht_128(float * x) {
+    for (int h = 1; h < 128; h *= 2) {
+        for (int i = 0; i < 128; i += h * 2) {
+            for (int j = i; j < i + h; j++) {
+                float a = x[j], b = x[j + h];
+                x[j] = a + b; x[j + h] = a - b;
+            }
+        }
+    }
+    const float inv = 0.08838834764831845f;
+    for (int i = 0; i < 128; i++) x[i] *= inv;
+}
+
+__launch_bounds__(256, 1)
+static __global__ void kernel_set_rows_turbo4(
+    const float * __restrict__ src0,
+    const int64_t * __restrict__ src1,
+    block_turbo4_0 * __restrict__ dst,
+    const int64_t ne00, const int64_t ne01,
+    const int64_t nb01, const int64_t nb1,
+    const int n_groups_per_row
+) {
+    const int64_t row = blockIdx.x;
+    if (row >= ne01) return;
+    const int grp_idx = blockIdx.y * blockDim.x + threadIdx.x;
+    if (grp_idx >= n_groups_per_row) return;
+
+    const float * src_row = (const float *)((const char *)src0 + row * nb01);
+    const int64_t dst_row_idx = src1[row];
+    block_turbo4_0 * dst_blk = (block_turbo4_0 *)((char *)dst + dst_row_idx * nb1) + grp_idx;
+
+    const float * grp_src = src_row + grp_idx * 128;
+
+    float norm_sq = 0.0f;
+    for (int j = 0; j < 128; j++) norm_sq += grp_src[j] * grp_src[j];
+    float norm = sqrtf(norm_sq);
+    float inv_norm = norm > 1e-10f ? 1.0f / norm : 0.0f;
+
+    float x[128], normalized[128];
+    for (int j = 0; j < 128; j++) {
+        x[j] = grp_src[j] * inv_norm;
+        normalized[j] = x[j];
+    }
+
+    // Forward FWHT rotation
+    for (int i = 0; i < 128; i++) x[i] *= d_turbo_wht_signs1[i];
+    turbo_fwht_128(x);
+    for (int i = 0; i < 128; i++) x[i] *= d_turbo_wht_signs2[i];
+
+    // 3-bit quantize
+    for (int j = 0; j < 48; j++) dst_blk->qs[j] = 0;
+    for (int j = 0; j < 16; j++) dst_blk->signs[j] = 0;
+
+    float recon[128];
+    for (int j = 0; j < 128; j++) {
+        uint8_t idx = 0;
+        idx += (x[j] >= TURBO3_MIDPOINTS_C[0]);
+        idx += (x[j] >= TURBO3_MIDPOINTS_C[1]);
+        idx += (x[j] >= TURBO3_MIDPOINTS_C[2]);
+        idx += (x[j] >= TURBO3_MIDPOINTS_C[3]);
+        idx += (x[j] >= TURBO3_MIDPOINTS_C[4]);
+        idx += (x[j] >= TURBO3_MIDPOINTS_C[5]);
+        idx += (x[j] >= TURBO3_MIDPOINTS_C[6]);
+
+        recon[j] = TURBO3_CENTROIDS_C[idx];
+        int bit_offset = j * 3, byte_idx = bit_offset / 8, bit_pos = bit_offset % 8;
+        dst_blk->qs[byte_idx] |= (uint8_t)((idx & 0x7) << bit_pos);
+        if (bit_pos > 5 && byte_idx + 1 < 48)
+            dst_blk->qs[byte_idx + 1] |= (uint8_t)((idx & 0x7) >> (8 - bit_pos));
+    }
+
+    // Cross-space residual (QJL)
+    float residual[128];
+    float rnorm_sq = 0.0f;
+    for (int j = 0; j < 128; j++) {
+        residual[j] = normalized[j] - recon[j];
+        rnorm_sq += residual[j] * residual[j];
+    }
+    float rnorm = sqrtf(rnorm_sq);
+    dst_blk->rnorm = __float2half(rnorm);
+
+    // QJL rotation of residual, then extract sign bits
+    for (int i = 0; i < 128; i++) residual[i] *= d_turbo_qjl_signs1[i];
+    turbo_fwht_128(residual);
+    for (int i = 0; i < 128; i++) residual[i] *= d_turbo_qjl_signs2[i];
+    for (int j = 0; j < 128; j++) {
+        if (residual[j] >= 0.0f) dst_blk->signs[j / 8] |= (1 << (j % 8));
+    }
+
+    // Norm correction with QJL component
+    float qjl_scale_unit = 1.2533141f / 128.0f * rnorm;
+    float recon_full_sq = 0.0f;
+    for (int j = 0; j < 128; j++) {
+        float s = (dst_blk->signs[j / 8] & (1 << (j % 8))) ? qjl_scale_unit : -qjl_scale_unit;
+        float r = recon[j] + s;
+        recon_full_sq += r * r;
+    }
+    float recon_full_norm = sqrtf(recon_full_sq);
+    dst_blk->norm = __float2half((recon_full_norm > 1e-10f) ? norm / recon_full_norm : norm);
+}
+
+void ggml_cuda_op_set_rows_turbo4(
+    ggml_backend_cuda_context & ctx,
+    ggml_tensor * dst
+) {
+    const ggml_tensor * src0 = dst->src[0];
+    const ggml_tensor * src1 = dst->src[1];
+
+    const float * src0_d = (const float *)src0->data;
+    const int64_t * src1_d = (const int64_t *)src1->data;
+    block_turbo4_0 * dst_d = (block_turbo4_0 *)dst->data;
+
+    const int64_t ne00 = src0->ne[0];
+    const int64_t ne01 = src0->ne[1];
+    const int64_t nb01 = src0->nb[1];
+    const int64_t nb1  = dst->nb[1];
+
+    GGML_ASSERT(ne00 % 128 == 0);
+    const int n_groups_per_row = ne00 / 128;
+
+    const int threads = 32;
+    const int grp_blocks = (n_groups_per_row + threads - 1) / threads;
+
+    dim3 grid(ne01, grp_blocks);
+    dim3 block(threads);
+
+    kernel_set_rows_turbo4<<<grid, block, 0, ctx.stream()>>>(
+        src0_d, src1_d, dst_d, ne00, ne01, nb01, nb1, n_groups_per_row);
+}
+
 void ggml_cuda_op_turbo_wht(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
     const ggml_tensor * src0 = dst->src[0];
 

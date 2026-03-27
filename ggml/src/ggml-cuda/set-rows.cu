@@ -328,6 +328,11 @@ void ggml_cuda_op_set_rows(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
         return;
     }
 
+    if (dst->type == GGML_TYPE_TURBO4_0) {
+        ggml_cuda_op_set_rows_turbo4(ctx, dst);
+        return;
+    }
+
     if (src1->type == GGML_TYPE_I64) {
         set_rows_cuda<float, int64_t>(ctx, src0, src1, dst);
     } else {
