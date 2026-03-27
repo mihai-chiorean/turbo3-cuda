@@ -536,6 +536,11 @@ static __device__ __forceinline__ void dequantize_V_q8_0(const void * __restrict
 // ── TurboQuant 3-bit: FA KQ dot product ──
 // Mirrors vec_dot_fattn_vec_KQ_f16 exactly: same loop structure, same Q_v indexing.
 // Only difference: K is read from turbo3 blocks instead of half2 array.
+//
+// Centroid access: constexpr float C[8] — compiled into registers/immediates.
+// NOT from __constant__ memory, so no warp serialization on centroid lookup.
+// The __constant__ TURBO3_CENTROIDS_C in turbo-quant.cu is only used by the
+// row-dequant kernels (get_rows/convert), not by this FA hot path.
 template<int D, int nthreads>
 static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_turbo3_0(
     const char * __restrict__ K_c, const void * __restrict__ Q_v,
@@ -545,6 +550,8 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_turbo3_0(
     GGML_UNUSED(Q_q8);
     GGML_UNUSED(Q_ds_v);
 
+    // Lloyd-Max centroids for Beta((127)/2, (127)/2) on [-1,1] at 3-bit (d=128 rotation groups).
+    // constexpr: lives in registers, no constant memory serialization.
     constexpr float C[8] = {
         -0.190685f, -0.117832f, -0.065717f, -0.021460f,
          0.021460f,  0.065717f,  0.117832f,  0.190685f
@@ -598,6 +605,7 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_turbo3_0(
 }
 
 // ── TurboQuant 3-bit: FA V dequantize ──
+// Same constexpr centroid access as vec_dot_KQ above — no __constant__ serialization.
 // Mirrors dequantize_V_f16: reads `ne` contiguous elements starting at flat offset i0,
 // dequantizes from turbo3 blocks, writes to dst as half or float.
 template <typename T, int ne>
