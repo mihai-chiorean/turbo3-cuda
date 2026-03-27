@@ -135,8 +135,43 @@ llama_kv_cache::llama_kv_cache(
         const bool has_k = true;
         const bool has_v = !is_mla;
 
-        ggml_tensor * k = has_k ? ggml_new_tensor_3d(ctx, type_k, n_embd_k_gqa, kv_size, n_stream) : nullptr;
-        ggml_tensor * v = has_v ? ggml_new_tensor_3d(ctx, type_v, n_embd_v_gqa, kv_size, n_stream) : nullptr;
+        // Layer-adaptive KV cache: promote quality-sensitive layers to q8_0.
+        // TURBO_LAYER_ADAPTIVE env var: 0=uniform (default),
+        //   1=q8_0 first4+last4, 2=q8_0 last8, 3=q8_0 last4,
+        //   4=q8_0 first4, 5=q8_0 first2+last2
+        ggml_type layer_type_k = type_k;
+        ggml_type layer_type_v = type_v;
+        {
+            static const int la_mode = []() {
+                const char * env = getenv("TURBO_LAYER_ADAPTIVE");
+                int m = env ? atoi(env) : 0;
+                if (m > 0) {
+                    LLAMA_LOG_INFO("llama_kv_cache: layer-adaptive mode %d enabled\n", m);
+                }
+                return m;
+            }();
+            const bool is_turbo = (type_k == GGML_TYPE_TURBO3_0 || type_k == GGML_TYPE_TURBO4_0 ||
+                                   type_v == GGML_TYPE_TURBO3_0 || type_v == GGML_TYPE_TURBO4_0);
+            const uint32_t n_layer = hparams.n_layer;
+            bool promote = false;
+            if (is_turbo && n_layer >= 8) {
+                switch (la_mode) {
+                    case 1: promote = (il < 4 || il >= n_layer - 4); break;
+                    case 2: promote = (il >= n_layer - 8); break;
+                    case 3: promote = (il >= n_layer - 4); break;
+                    case 4: promote = (il < 4); break;
+                    case 5: promote = (il < 2 || il >= n_layer - 2); break;
+                }
+            }
+            if (promote) {
+                layer_type_k = GGML_TYPE_Q8_0;
+                layer_type_v = GGML_TYPE_Q8_0;
+                LLAMA_LOG_INFO("%s: layer %d promoted to q8_0 (LA mode %d)\n", __func__, il, la_mode);
+            }
+        }
+
+        ggml_tensor * k = has_k ? ggml_new_tensor_3d(ctx, layer_type_k, n_embd_k_gqa, kv_size, n_stream) : nullptr;
+        ggml_tensor * v = has_v ? ggml_new_tensor_3d(ctx, layer_type_v, n_embd_v_gqa, kv_size, n_stream) : nullptr;
 
         has_k && ggml_format_name(k, "cache_k_l%d", il);
         has_v && ggml_format_name(v, "cache_v_l%d", il);
