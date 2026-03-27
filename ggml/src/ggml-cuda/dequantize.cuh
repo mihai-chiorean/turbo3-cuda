@@ -101,3 +101,28 @@ static __device__ __forceinline__ void dequantize_turbo3_0(const void * vx, cons
 }
 
 #define QR_TURBO3 2
+
+static __device__ __forceinline__ void dequantize_turbo4_0(const void * vx, const int64_t ib, const int iqs, float2 & v){
+    const block_turbo4_0 * x = (const block_turbo4_0 *) vx;
+    const float norm = __half2float(x[ib].norm);
+    const float rnorm = __half2float(x[ib].rnorm);
+    const float qjl_scale = 1.2533141f / 128.0f * rnorm;
+
+    { const int j = iqs;
+      int bo = j * 3, bi = bo / 8, bp = bo % 8;
+      uint16_t raw = (uint16_t)x[ib].qs[bi];
+      if (bi + 1 < 48) raw |= (uint16_t)x[ib].qs[bi + 1] << 8;
+      uint8_t idx = (uint8_t)((raw >> bp) & 0x7);
+      float s = (x[ib].signs[j / 8] & (1 << (j % 8))) ? 1.0f : -1.0f;
+      v.x = (TURBO3_CENTROIDS_D[idx] + s * qjl_scale) * norm; }
+
+    { const int j = iqs + 64;
+      int bo = j * 3, bi = bo / 8, bp = bo % 8;
+      uint16_t raw = (uint16_t)x[ib].qs[bi];
+      if (bi + 1 < 48) raw |= (uint16_t)x[ib].qs[bi + 1] << 8;
+      uint8_t idx = (uint8_t)((raw >> bp) & 0x7);
+      float s = (x[ib].signs[j / 8] & (1 << (j % 8))) ? 1.0f : -1.0f;
+      v.y = (TURBO3_CENTROIDS_D[idx] + s * qjl_scale) * norm; }
+}
+
+#define QR_TURBO4 2
