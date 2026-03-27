@@ -477,11 +477,8 @@ static __global__ void kernel_set_rows_turbo4(
     float norm = sqrtf(norm_sq);
     float inv_norm = norm > 1e-10f ? 1.0f / norm : 0.0f;
 
-    float x[128], normalized[128];
-    for (int j = 0; j < 128; j++) {
-        x[j] = grp_src[j] * inv_norm;
-        normalized[j] = x[j];
-    }
+    float x[128];
+    for (int j = 0; j < 128; j++) x[j] = grp_src[j] * inv_norm;
 
     // Forward FWHT rotation
     for (int i = 0; i < 128; i++) x[i] *= d_turbo_wht_signs1[i];
@@ -510,11 +507,11 @@ static __global__ void kernel_set_rows_turbo4(
             dst_blk->qs[byte_idx + 1] |= (uint8_t)((idx & 0x7) >> (8 - bit_pos));
     }
 
-    // Cross-space residual (QJL)
+    // Rotated-space residual for QJL
     float residual[128];
     float rnorm_sq = 0.0f;
     for (int j = 0; j < 128; j++) {
-        residual[j] = normalized[j] - recon[j];
+        residual[j] = x[j] - recon[j];
         rnorm_sq += residual[j] * residual[j];
     }
     float rnorm = sqrtf(rnorm_sq);
