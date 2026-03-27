@@ -434,6 +434,9 @@ static void ggml_cuda_flash_attn_ext_vec(ggml_backend_cuda_context & ctx, ggml_t
     FATTN_VEC_CASES_ALL_D(GGML_TYPE_TURBO3_0, GGML_TYPE_Q8_0)
     FATTN_VEC_CASES_ALL_D(GGML_TYPE_TURBO4_0, GGML_TYPE_TURBO4_0)
 
+    // Asymmetric turbo3 K (shadowed to f16) + q8_0 V
+    FATTN_VEC_CASES_ALL_D(GGML_TYPE_F16, GGML_TYPE_Q8_0)
+
     GGML_ABORT("fatal error");
 }
 
@@ -511,7 +514,9 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
     if (K->type != V->type) {
         const bool turbo_k_mixed = (K->type == GGML_TYPE_TURBO3_0 &&
             (V->type == GGML_TYPE_F16 || V->type == GGML_TYPE_Q8_0));
-        if (!turbo_k_mixed) {
+        // Allow f16 K + q8_0 V (used by asymmetric turbo3 K shadow + q8_0 V)
+        const bool f16_k_q8_v = (K->type == GGML_TYPE_F16 && V->type == GGML_TYPE_Q8_0);
+        if (!turbo_k_mixed && !f16_k_q8_v) {
             return BEST_FATTN_KERNEL_NONE;
         }
     }
