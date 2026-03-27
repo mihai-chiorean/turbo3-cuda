@@ -1,70 +1,61 @@
-# TurboQuant Session State — Resume From Here
+# Session State — TurboQuant CUDA
 
-## Git Status
-```
-Branch: release/turbo3-cuda
-Latest commit: d3119d33c (bench: document profiling tool attempts)
-Working tree: clean
-```
+**Last updated**: 2026-03-28 02:00 MST
+**Branch**: `release/turbo3-cuda`
+**Latest commit**: `f15ea3462` (bf16 validation)
 
-## Completed Items
-- 0.1: FA dispatch safety (forces vec-only for turbo3) ✅
-- 0.2: Auto-enable FA for turbo cache types ✅
-- 0.3: Dead code removal in set-rows.cu ✅
-- 0.4: Profiling analysis from decode curve data ✅
-- 1.1: Norm correction in SET_ROWS quantizer ✅
-- 1.2: 16-byte struct padding (+11.7% decode at 32K) ✅
-- 1.3: __launch_bounds__ on turbo kernels ✅
-- 1.4: Centroid access verified as constexpr in FA ✅
-- 3.3: Register LUT + batched byte extraction (+2.1% additional at 32K) ✅
-- Tier 2 gate: measured and documented ✅
-- Tier 3 diagnostic: zip saved in benchmarks/community/ ✅
+## Current Performance
 
-## Current Numbers (after all optimizations)
-Decode (tg128 tok/s):
-  short: q8_0=59.40, turbo3=52.59 (0.885x)
-  4K:    q8_0=60.05, turbo3=52.87 (0.881x)
-  8K:    q8_0=59.31, turbo3=49.73 (0.838x)
-  16K:   q8_0=57.15, turbo3=45.83 (0.802x)
-  32K:   q8_0=54.69, turbo3=39.30 (0.719x)
+### Decode (tg128 tok/s, persistent shadow cache)
+| Context | q8_0 | turbo3 | Ratio |
+|---------|------|--------|-------|
+| short | 55.20 | 51.76 | 0.938x |
+| 32K | 50.41 | 47.08 | 0.934x |
 
-PPL: turbo3=6.867 vs q8_0=6.759 (+1.6%)
-Prefill: turbo3=1949 vs q8_0=3124 (0.624x) — REGRESSED from FA dispatch fix
+### Prefill (pp512 tok/s)
+| Depth | q8_0 | turbo3 | Ratio |
+|-------|------|--------|-------|
+| 0 | 3046 | 2983 | 0.979x |
+| 8K | 3029 | 2736 | 0.903x |
+| 32K | 2484 | 2291 | 0.922x |
 
-## Items NOT Done (continue from here)
-1. **2.1 Fused FA kernel** — drop-in vec_dot prototype was reverted (slower).
-   Needs: new fattn-vec-turbo3.cuh with outer KV loop, loads uint8 indices,
-   Q binning + 8 centroid muls. This is the main decode speedup path.
-   Register LUT was done as interim improvement.
+### PPL (ctx=512, 8 chunks)
+| Config | PPL | vs q8_0 6.759 |
+|--------|-----|---------------|
+| turbo3 uniform | 6.867 | +1.60% |
+| turbo3 LA-1 | 6.804 | +0.67% |
+| q8_0 | 6.759 | baseline |
+| f16 | 6.756 | -0.04% |
 
-2. **2.2 Dequant-then-MMA prefill** — prefill regressed to 0.624x from FA dispatch
-   fix forcing vec-only kernel. Need bulk dequant → cuBLAS GEMM pipeline.
+## Commits This Session
+1. `8f91a5d75` — dequant-to-fp16 prefill+decode (per-call, fixed prefill regression)
+2. `57f9a3bff` — persistent fp16 shadow cache (incremental dequant)
+3. `91bb63001` — cleanup (removed dead kernels, L2 hints tested negative)
+4. `4b1a8fa1b` — layer-adaptive KV cache (TURBO_LAYER_ADAPTIVE env var)
+5. `f15ea3462` — bf16 bypass validation (debunked bf16 requirement)
 
-3. **3.1 turbo4 CUDA port** — port from spiritbuun's fork
-4. **3.2 Asymmetric K/V** — K=turbo3, V=fp16 and K=turbo3, V=q8_0
-5. **3.4 Layer-adaptive KV cache**
-6. **4.1 L2 cache residency** (__ldg for turbo3 blocks)
-7. **5.2 FA instance coverage** (D=192, 320, 576)
-8. **5.3 Backend-ops test integration**
-9. **5.4 bf16 bypass validation** — test turbo3 vs bf16 vs f16 PPL
-10. **5.5-5.8 Documentation items**
-11. **README update + GitHub push**
+## What's Done
+- [x] Fix prefill regression (0.038x → 0.979x)
+- [x] Persistent fp16 shadow cache (eliminates per-token bulk dequant)
+- [x] Layer-adaptive modes 1-5 (PPL +1.6% → +0.67%)
+- [x] bf16 bypass validation
+- [x] Tested L2 persistence hints (net negative, removed)
+- [x] Tested single-row dequant kernel (no improvement, removed)
 
-## Key Files
-- Model: /home/erol/ai/turboquant/models/opus-v2-Q6_K.gguf
-- Wikitext: wikitext-2-raw/wiki.test.raw
-- Plan: IMPROVEMENT_PLAN.md (in repo root, also .trash/ copy)
-- Benchmarks: benchmarks/CHANGELOG.md, benchmarks/gate/, benchmarks/community/
-- spiritbuun's fork: /home/erol/projects/llama-cpp-turboquant-cuda/
+## What's Next (in priority order)
+1. FA instance coverage (D=192, 320, 576)
+2. turbo4 CUDA port
+3. Backend-ops test integration
+4. Documentation updates (reasoning tokens, multi-GPU, FA-4)
+5. Full Tier 2 benchmark suite
+6. Update README with results
+7. Push to GitHub
+8. TheTom diagnostic
 
-## Build Command
-```bash
-/home/erol/miniconda3/envs/tq/bin/cmake --build build -j$(nproc)
-```
-
-## Critical Architecture Notes
-- RTX 5090 SM120: 128KB smem/SM, 48 warps, NO WGMMA/TMEM
-- Qwen 3.5 27B: 16 GA layers (with KV), 48 GDN layers (no KV), head_dim=256
-- turbo3 block: 16 bytes (padded from 14), 32 values per block
-- FA vec_dot centroids are constexpr C[8] in registers (not __constant__)
-- llama-bench uses -d for context depth, NOT -c
+## Targets vs Current
+| Metric | Current | Target | Status |
+|--------|---------|--------|--------|
+| Decode short | 0.938x | >0.95x | CLOSE |
+| Decode 32K | 0.934x | >0.95x | CLOSE |
+| Prefill | 0.979x | >0.95x | HIT |
+| PPL (LA-1) | +0.67% | <+1% | HIT |
