@@ -22,6 +22,13 @@ The first production CUDA implementation of TurboQuant KV cache compression for 
 | 4K | 175 | 151 | 0.863× |
 | 8K | 174 | 148 | 0.847× |
 | 32K | 134 | 131 | **0.975×** |
+| 128K | 79 | 87 | **1.100×** |
+
+| Context | q8_0 tok/s | K=turbo3 V=q8_0 | Ratio |
+|---------|-----------|----------------|-------|
+| short | 194 | 179 | 0.924× |
+| 32K | 139 | 142 | **1.023×** |
+| 128K | 79 | 94 | **1.187×** |
 
 ### Quality (PPL, wikitext-2, 8 chunks)
 
