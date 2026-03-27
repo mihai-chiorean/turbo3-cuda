@@ -72,3 +72,33 @@ Note: pp512 dropped vs baseline (3073→2167) because vec kernel is correctly us
 instead of the MMA kernel that was producing wrong results (NaN PPL).
 
 ---
+
+## Post-P0P1 Full Baseline (2026-03-27)
+
+**Commit**: `39f8bce3d` (fix: auto-enable flash attention for turbo cache types)
+**This is the reference baseline for all future optimizations.**
+
+### Decode Curve (tg128 tok/s)
+
+| Context | q8_0 | turbo3 | Ratio |
+|---------|------|--------|-------|
+| short | 59.40 | 51.49 | 0.867x |
+| 2K | 60.38 | 51.61 | 0.855x |
+| 4K | 60.05 | 50.02 | 0.833x |
+| 8K | 59.31 | 47.32 | 0.798x |
+| 16K | 57.15 | 41.76 | 0.731x |
+| 32K | 54.69 | 34.47 | 0.630x |
+
+Context scaling: 0.867x → 0.630x (ratio drops 27% from short to 32K)
+
+### Perplexity (8 chunks)
+
+| Context | q8_0 PPL | turbo3 PPL | Delta |
+|---------|----------|------------|-------|
+| 512 | 6.759 | 6.841 | +1.2% |
+| 2048 | 5.674 | 5.697 | +0.4% |
+| 8192 | 6.667 | 6.784 | +1.8% |
+
+Quality within 2% target at all depths. Best at 2K context (+0.4%).
+
+---
