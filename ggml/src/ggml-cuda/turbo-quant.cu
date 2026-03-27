@@ -171,6 +171,7 @@ static __constant__ float d_turbo_wht_signs2[128] = {
     -1, 1,-1, 1, 1,-1, 1,-1, 1,-1,-1,-1,-1,-1, 1,-1
 };
 
+__launch_bounds__(256, 1)
 static __global__ void kernel_turbo_wht(
     const float * __restrict__ src,
     float       * __restrict__ dst,
@@ -221,6 +222,7 @@ static __constant__ float TURBO3_MIDPOINTS_QC[7] = {
      0.043589f,  0.091775f,  0.154259f
 };
 
+__launch_bounds__(256, 1)
 static __global__ void kernel_set_rows_turbo3(
     const float * __restrict__ src0,
     const int64_t * __restrict__ src1,
@@ -271,12 +273,12 @@ static __global__ void kernel_set_rows_turbo3(
     const float inv_sqrt_128 = 0.08838834764831845f;
     for (int i = 0; i < 128; i++) x[i] = x[i] * inv_sqrt_128 * d_turbo_wht_signs2[i];
 
-    // Step 3: Quantize into 4 blocks of 32
+    // Step 3: Quantize into 4 blocks of 32, accumulating reconstruction norm
+    float recon_norm_sq = 0.0f;
+
     for (int b = 0; b < 4; b++) {
         block_turbo3_0 * blk = &dst_row[grp_idx * 4 + b];
         const int off = b * 32;
-
-        blk->norm = __float2half(grp_norm);
 
         // Clear packed bytes
         for (int j = 0; j < 8; j++) blk->qs[j] = 0;
@@ -302,7 +304,18 @@ static __global__ void kernel_set_rows_turbo3(
             if (idx & 0x4) {
                 blk->signs[j >> 3] |= (1u << (j & 7));
             }
+
+            recon_norm_sq += TURBO3_CENTROIDS_C[idx] * TURBO3_CENTROIDS_C[idx];
         }
+    }
+
+    // Norm correction: store corrected norm so dequant produces vectors with exact original L2 norm.
+    // Codebook quantization systematically shrinks reconstruction norm; this corrects the bias.
+    float recon_norm = sqrtf(recon_norm_sq);
+    float corrected_norm = (recon_norm > 1e-10f) ? grp_norm / recon_norm : grp_norm;
+
+    for (int b = 0; b < 4; b++) {
+        dst_row[grp_idx * 4 + b].norm = __float2half(corrected_norm);
     }
 }
 
