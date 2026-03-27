@@ -1,8 +1,8 @@
 # Session State — TurboQuant CUDA
 
-**Updated**: 2026-03-28 Session 6 (context limit approaching)
+**Updated**: 2026-03-27 Session 8
 **Branch**: `release/turbo3-cuda`
-**Latest commit**: `351758bd3`
+**Latest commit**: `c2749ad48`
 
 ## Performance
 | Context | q8_0 | turbo3 | Ratio |
@@ -12,24 +12,54 @@
 
 PPL: 6.848 (+1.32% at 512), 5.736 (+1.08% at 2048)
 
-## Session 6 Summary
-1. **Sparse V threshold 1e-4**: PPL improved to +1.32%. Committed.
-2. **__expf in FA softmax**: Zero PPL impact, helps absolute throughput. Committed.
-3. **Flat array shadow cache**: FAILED (hash collisions → PPL 25.93). Reverted.
-4. **Fused SET_ROWS fp16 write**: FAILED (KV cache lifecycle tracking broken → wrong PPL). Reverted.
-5. **Asymmetric K=turbo3 V=q8_0**: PPL 6.804 (+0.67%). Decode not working (needs f16+q8_0 instance). Committed as partial.
-6. **MoE model download**: IN PROGRESS (background Python download of Qwen3.5-35B-A3B Q4_K_M)
+## Session 8 Summary
 
-## Key Findings
-- Fused SET_ROWS needs KV cache lifecycle hooks that don't exist in ggml
-- The incremental sync (turbo_shadow_sync) is the correct approach — it properly handles cache clears
-- 5.6% short-context gap is architectural, not easily fixable without ggml-level changes
-- spiritbuun's 0.97x was on MoE with tiny KV — apples-to-oranges vs our dense model
+### Phase 1A: Asymmetric K=turbo3 V=q8_0 decode — FIXED
+- **Two bugs**: mixed-type guard in get_best_fattn_kernel (f16+q8_0 not allowed), and missing VEC dispatch entry + CMake glob
+- PPL: 6.804 (+0.67% at 512), 5.650 (-0.42% at 2048) — better than q8_0 at long context!
+- Decode: ~55.5 tok/s short (0.969x)
+- **Committed**: ef506d510
+
+### Phase 1B: turbo4 end-to-end — WORKING
+- **Bug 1**: TURBO4_0 missing from GET_ROWS and SET_ROWS supports_op in ggml-cuda.cu
+- **Bug 2**: turbo4 ctx=512 PPL NaN was actually a batch_size issue (n_seq>1 → native turbo4 vec path broken)
+- Shadow path works perfectly: PPL 5.743 at ctx=2048
+- Decode: 52.5 tok/s short, 47.6 tok/s at 32K
+- **Known issue**: native turbo4 vec_dot gives NaN with Q->ne[3]>1 (multi-seq PPL at ctx=512)
+- **Committed**: 79d8158a7
+
+### Phase 2: README + Discussion Post
+- README updated with MoE table, turbo4, asymmetric K/V
+- Discussion post draft at .trash/DISCUSSION_POST.md
+- **Committed**: c2749ad48
+
+### Phase 3: lop3 Research
+- Cloned BitDecoding to /tmp/bitdecoding
+- Key finding: no direct 3-bit lop3 template (only 2-bit and 4-bit)
+- lop3 benefits require full TC-based FA kernel, not vec_dot optimization
+- Centroid lookup (8 arbitrary floats) can't be done bitwise
+- The 0x64006400 constant embeds values in bf16 format for TC fragments
+- Multi-day effort — deferred to dedicated session
+
+## Key Findings This Session
+- `-b 512` flag produces bad PPL (14.79) for ALL turbo types — perplexity evaluator issue with batch=ctx
+- `Q->ne[3] != 1` bypass is required for multi-seq correctness (removing it breaks turbo3 too)
+- turbo4 SET_ROWS cross-space residual (normalized-recon) vs rotated-space (x-recon) makes no meaningful difference
+- The f16+q8_0 FA instance existed upstream but wasn't compiled without FA_ALL_QUANTS
 
 ## Continuation Prompt
 > Read SESSION_STATE.md. Branch: release/turbo3-cuda.
-> MoE model downloading to /home/erol/ai/turboquant/models/ — check if done:
->   ls -la /home/erol/ai/turboquant/models/Qwen3.5-35B-A3B-Q4_K_M.gguf
-> If downloaded, benchmark MoE model: decode at 0/4K/8K/32K for turbo3 and q8_0.
-> Then: update README with both model results, push to GitHub, TheTom diagnostic.
-> Remaining: turbo4 debug, asymmetric decode fix (need f16+q8_0 FA instance).
+>
+> Phase 1-2 complete. Push: already done.
+>
+> Remaining from Phase 4:
+> 1. Test turbo4 on MoE model
+> 2. Pull spiritbuun + TheTom for new commits
+> 3. Run 128K context test on MoE with turbo3
+> 4. Profile individual kernel times (chrono approach)
+> 5. Write technical documentation of shadow cache architecture
+>
+> Future (separate sessions):
+> - lop3 TC-based FA kernel (the real moonshot past 0.94x)
+> - Fix native turbo4 vec_dot for multi-seq (Q->ne[3]>1)
+> - Backend-ops test integration
