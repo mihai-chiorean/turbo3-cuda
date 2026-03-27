@@ -328,7 +328,7 @@ static __global__ void flash_attn_ext_vec(
             {
                 bool all_neg = true;
                 for (int j = 0; j < ncols; ++j) {
-                    if (__hgt(__low2half(KQ_k[j]), __float2half(1e-6f))) { all_neg = false; break; }
+                    if (__hgt(__low2half(KQ_k[j]), __float2half(1e-4f))) { all_neg = false; break; }
                 }
                 if (all_neg) continue;
             }
@@ -357,7 +357,7 @@ static __global__ void flash_attn_ext_vec(
             {
                 bool all_neg = true;
                 for (int j = 0; j < ncols; ++j) {
-                    if (KQ_k[j] > 1e-6f) { all_neg = false; break; }
+                    if (KQ_k[j] > 1e-4f) { all_neg = false; break; }
                 }
                 if (all_neg) continue;
             }
