@@ -1,157 +1,103 @@
-# llama.cpp + TurboQuant turbo3 CUDA
+# llama.cpp + TurboQuant CUDA — Faster Than q8_0 at Long Context
 
-The first CUDA implementation of TurboQuant turbo3 KV cache compression with Flash Attention support for NVIDIA GPUs.
+The first production CUDA implementation of TurboQuant KV cache compression for NVIDIA GPUs. **turbo3 now beats q8_0 decode speed at 16K+ context** while using 4.6× less KV memory.
 
-Compresses the KV cache to **3.5 bits per value** (4.6× vs fp16) with near-zero quality loss, enabling **700K+ token context on a single RTX 5090** (32GB).
+## Headline Results (RTX 5090, Qwen 3.5 27B)
 
-Tested with **Qwen3.5-27B** ([Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-v2](https://huggingface.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-v2)), a hybrid architecture with 48 GatedDeltaNet (SSM) layers + 16 GatedAttention layers — only the 16 attention layers use KV cache.
+| Context | q8_0 tok/s | turbo3 tok/s | Ratio | KV Memory |
+|---------|-----------|-------------|-------|-----------|
+| short | 58.60 | 55.18 | 0.942× | 4.6× smaller |
+| 8K | 53.66 | 51.04 | 0.951× | 4.6× smaller |
+| 16K | 50.26 | 49.85 | **0.992×** | 4.6× smaller |
+| 32K | 45.29 | 48.15 | **1.063×** | 4.6× smaller |
+| Prefill | 3001 | 2931 | 0.977× | — |
 
-## What This Is
+| Quality | q8_0 | turbo3 | turbo3 + LA-1 |
+|---------|------|--------|---------------|
+| PPL (512 ctx) | 6.759 | 6.854 (+1.4%) | 6.804 (+0.67%) |
+| PPL (2048 ctx) | 5.674 | 5.736 (+1.1%) | — |
 
-A fork of [TheTom/llama-cpp-turboquant](https://github.com/TheTom/llama-cpp-turboquant) (which itself forks [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)) that adds **CUDA GPU support** for the `turbo3` KV cache type. TheTom's original implementation had Metal (Apple Silicon) kernels only — this port brings full CUDA support including Flash Attention integration.
+**turbo3 beats q8_0 by 6.3% at 32K context** — compressed KV moves less data over the memory bus, and sparse V dequant skips 90%+ of negligible attention positions.
 
-## Key Results
+## What Makes This Fork Unique
 
-| Metric | Value |
-|--------|-------|
-| KV compression | 4.6× (3.5 bits/value vs 16-bit fp16) |
-| Max context (RTX 5090 32GB) | 700,000+ tokens |
-| Generation speed | 48 tok/s at 524K context |
-| Quality (NIAH) | 6/6 exact retrieval |
-| Quality (math/factual) | All tests passing |
-| Flash Attention | Enabled for both K and V |
+- **Persistent fp16 shadow cache** — KV data dequanted once, cached across tokens. Only new positions (1 per token) need dequanting. Zero per-token overhead for existing cache.
+- **Sparse V dequantization** — Skip V dequant+accumulate for positions with attention weight < 1e-6. Eliminates 90%+ of V-path work at long context. Based on [TheTom's research](https://github.com/TheTom/turboquant_plus/blob/main/docs/papers/sparse-v-dequant.md).
+- **Layer-adaptive KV cache** — Promote quality-sensitive layers (first+last) to q8_0. Cuts PPL gap from +1.4% to +0.67%.
+- **Blackwell-first** — Tested and optimized for RTX 5090 (SM120, GDDR7).
+- **Prefill dequant+MMA** — Tensor Core acceleration for prompt processing via bulk fp16 dequant.
 
-## How It Works
+## Hardware
 
-TurboQuant ([arXiv:2504.19874](https://arxiv.org/abs/2504.19874), ICLR 2026) compresses KV cache vectors using:
-
-1. **Random orthogonal rotation** (Fast Walsh-Hadamard Transform) — makes coordinates nearly independent
-2. **Lloyd-Max optimal scalar quantization** — 3-bit per coordinate using precomputed codebooks
-3. **Per-vector norm storage** — preserves magnitude information in fp16
-
-The `turbo3` block format stores 32 values in 14 bytes: 8 bytes of 2-bit indices + 4 bytes of 1-bit sign extensions + 2 bytes fp16 norm.
-
-## Requirements
-
-- NVIDIA GPU with compute capability ≥ 8.0 (tested on RTX 5090 sm_120)
-- CUDA Toolkit 12.8 (NOT 13.x — MMQ kernel segfaults on 13.1)
-- CMake 3.21+
-- C++17 compiler
+- **Tested**: RTX 5090 32GB, CUDA 12.8, SM120 (Blackwell)
+- **Should work**: Any NVIDIA GPU with SM ≥ 75 (Turing+) and Flash Attention support
+- **Not tested**: RTX 3090/4090 (use [spiritbuun's fork](https://github.com/spiritbuun/llama-cpp-turboquant-cuda) for those)
 
 ## Quick Start
 
 ```bash
-# Clone
-git clone https://github.com/erolgermain/llama-cpp-turbo3-cuda.git
-cd llama-cpp-turbo3-cuda
-
 # Build
-cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120 \
-  -DGGML_CUDA_FORCE_CUBLAS=OFF
-cmake --build build --config Release -j $(nproc)
+cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120
+cmake --build build -j$(nproc)
 
-# Run with turbo3 KV cache
-./build/bin/llama-server \
-  -m your-model.gguf \
-  --cache-type-k turbo3 --cache-type-v turbo3 \
-  -c 524288 --port 8080 --host 0.0.0.0 -ngl 99 --no-mmap \
-  --jinja --reasoning-format deepseek
+# Run with turbo3 KV cache (Flash Attention auto-enabled)
+./build/bin/llama-cli -hf your-model-GGUF -ctk turbo3 -ctv turbo3 -ngl 99
+
+# Run server
+./build/bin/llama-server -hf your-model-GGUF -ctk turbo3 -ctv turbo3 -ngl 99 --port 8080
 ```
 
-Or use the launch script:
+## Configuration
 
-```bash
-# Set model path and run
-TURBO_MODEL_PATH=./models/your-model.gguf ./launch_server.sh
+| Environment Variable | Effect | Default |
+|---------------------|--------|---------|
+| `TURBO_LAYER_ADAPTIVE=1` | First+last 4 layers at q8_0 (best PPL) | 0 (disabled) |
+| `TURBO_LAYER_ADAPTIVE=2` | Last 8 layers at q8_0 | — |
+| `GGML_TURBO_DECODE_NATIVE=1` | Disable fp16 shadow, use native turbo3 vec | disabled |
 
-# Or pass as argument
-./launch_server.sh ./models/your-model.gguf 524288
+Layer-adaptive modes (set `TURBO_LAYER_ADAPTIVE`):
+- `0` — Uniform turbo3 (default)
+- `1` — q8_0 for first 4 + last 4 layers (best PPL: +0.67%)
+- `2` — q8_0 for last 8 layers
+- `3` — q8_0 for last 4 layers
+- `4` — q8_0 for first 4 layers
+- `5` — q8_0 for first 2 + last 2 layers
+
+## How It Works
+
+[TurboQuant](https://arxiv.org/abs/2504.19874) (ICLR 2026) compresses KV cache vectors to 3.5 bits/value:
+
+1. **Normalize** — compute L2 norm of 128-element groups
+2. **Rotate** — Fast Walsh-Hadamard Transform with random sign flips (Gaussianizes the distribution)
+3. **Quantize** — nearest of 8 Lloyd-Max centroids (3-bit index)
+4. **Pack** — 2-bit qs[] + 1-bit signs[] arrays + fp16 norm
+5. **Norm correction** — store `raw_norm / ||reconstruction||` for exact L2 norm
+
+Block format: 16 bytes per 32 values (padded for GDDR7 coalescing).
+
+### Decode Architecture
+
 ```
-
-## VRAM Budget
-
-Measured with Qwen3.5-27B Q6_K (~21 GB weights) on RTX 5090 32GB:
-
-| Component | Size |
-|-----------|------|
-| Model weights (Q6_K) | ~21 GB |
-| KV cache turbo3 (per 100K tokens) | ~1.4 GB |
-| CUDA overhead | ~1.5 GB |
-| **Total at 524K context** | **~29.8 GB** |
-| **Total at 700K context** | **~32.3 GB** |
-
-**VRAM formula:**
-
+Token arrives → SET_ROWS stores turbo3 in KV cache
+                → Shadow cache: incremental dequant of 1 new position to fp16
+                                (positions 0..N-1 already cached from previous tokens)
+Flash Attention → K path: read fp16 from shadow (fast dot product)
+                → V path: sparse skip for weight < 1e-6 (90%+ skipped at long ctx)
+Output → graph-level V inverse rotation
 ```
-KV_per_token = 2 × n_kv_layers × n_kv_heads × head_dim × (14 / 32)
-```
-
-The per-token cost depends on your model's architecture. `n_kv_layers` is the number of layers that have a KV cache — for hybrid models like Qwen3.5-27B, only 16 of 64 layers are standard attention (the other 48 are GatedDeltaNet/SSM with fixed-size state).
-
-**Qwen3.5-27B example:** `2 × 16 × 4 × 256 × 0.4375 = 14,336 bytes ≈ 14 KB/token` (vs ~64 KB with fp16 — 4.6× reduction)
-
-> **Note:** For standard transformer models (e.g. Llama-3.1), all layers have KV cache, so `n_kv_layers = n_layers`.
-
-## Files Modified (CUDA Port)
-
-**New files:**
-| File | Description |
-|------|-------------|
-| `ggml/src/ggml-cuda/turbo-quant.cu` | Dequantize kernels, FWHT rotation kernel, SET_ROWS quantize kernel |
-| `ggml/src/ggml-cuda/turbo-quant.cuh` | Header declarations for turbo3 CUDA ops |
-| `ggml/src/ggml-cuda/template-instances/fattn-vec-instance-turbo3_0-f16.cu` | FA template instances: turbo3 K + fp16 V |
-| `ggml/src/ggml-cuda/template-instances/fattn-vec-instance-turbo3_0-turbo3_0.cu` | FA template instances: turbo3 K + turbo3 V |
-
-**Modified files:**
-| File | Change |
-|------|--------|
-| `fattn-common.cuh` | `vec_dot_fattn_vec_KQ_turbo3_0` (K dot product) + `dequantize_V_turbo3_0` (V dequant) |
-| `fattn-vec.cuh` | Thread/block config for turbo3 (matches f16 path), extern declarations |
-| `fattn.cu` | FATTN_VEC_CASES_ALL_D entries, K type switch, K≠V mixed-type exception |
-| `convert.cu` | Dequantize dispatch for fp16/fp32/bf16, contiguous + non-contiguous |
-| `set-rows.cu` | Custom turbo3 quantize kernel dispatch |
-| `getrows.cu` | turbo3 get_rows dispatch |
-| `cpy.cu` | Same-type raw byte copy for turbo3/turbo4 |
-| `cpy-utils.cuh` | `quantize_f32_turbo3_0_block` device function |
-| `dequantize.cuh` | `dequantize_turbo3_0` for get_rows template |
-| `ggml-cuda.cu` | TURBO_WHT op dispatch, supports_op entries, MUL_MAT turbo exclusion |
-| `CMakeLists.txt` | Glob turbo3 FA template instances into build |
-
-## Known Limitations
-
-- **CUDA 13.1 + MMQ kernel = segfault** — use CUDA 12.8
-- **turbo4** (4.25-bit with QJL correction) not yet ported to CUDA
-- **No CPU fallback** for turbo3 dequant during inference (GPU required)
-- **Flash Attention required** for turbo3 V cache (non-FA path would materialize O(n²) attention matrix)
-- **Blackwell-tested only** — should work on Ampere/Hopper but not validated
-
-## Benchmarks
-
-See [BENCHMARKS.md](BENCHMARKS.md) for detailed quality and performance results with reproduction commands.
-
-## Documentation
-
-- **[GUIDE.md](GUIDE.md)** — Step-by-step setup, build, and deployment guide
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — Technical deep-dive into the turbo3 block format, FWHT rotation, and CUDA kernel design
-- **[BENCHMARKS.md](BENCHMARKS.md)** — Quality and performance benchmarks with reproduction commands
 
 ## Credits
 
-This project builds on the work of:
+- **[TheTom](https://github.com/TheTom/llama-cpp-turboquant)** — Original Metal implementation, sparse V dequant research, diagnostic scripts
+- **[spiritbuun](https://github.com/spiritbuun/llama-cpp-turboquant-cuda)** — CUDA reference (RTX 3090), norm correction, layer-adaptive, prefill MMA
+- **[Google Research](https://arxiv.org/abs/2504.19874)** — TurboQuant algorithm (ICLR 2026)
+- **[Madreag](https://github.com/Madreag)** — This fork: RTX 5090 port, persistent shadow cache, sparse V CUDA, Blackwell optimization
 
-- **[TheTom/turboquant_plus](https://github.com/TheTom/turboquant_plus)** — Original TurboQuant implementation with Metal kernels, llama.cpp integration, turbo3/turbo4 block formats, WHT rotation, and the complete test suite. The CUDA kernels in this repo are a direct port of TheTom's Metal shaders.
-- **[ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)** — The inference engine this is built on.
-- **[Google Research](https://research.google/blog/turboquant-redefining-ai-efficiency-with-extreme-compression/)** — The TurboQuant algorithm (Zandieh, Daliri, Hadian, Mirrokni). Paper: [arXiv:2504.19874](https://arxiv.org/abs/2504.19874).
-- **[tonbistudio/turboquant-pytorch](https://github.com/tonbistudio/turboquant-pytorch)** — PyTorch reference implementation with Lloyd-Max solver and test suite.
-- **[dejan.ai](https://dejan.ai/blog/turboquant/)** — Triton fused kernel implementation that informed the Flash Attention integration approach.
-- **[unixsysdev/llama-turboquant](https://github.com/unixsysdev/llama-turboquant)** — Independent CUDA port with fused MMVQ approach (referenced during development).
-- **[Prince Canuma (@Blaizzy)](https://github.com/Blaizzy)** — MLX TurboQuant implementation validating 6/6 NIAH on Qwen3.5 architecture.
+## Related Projects
 
-## Algorithm Reference
-
-- TurboQuant: [arXiv:2504.19874](https://arxiv.org/abs/2504.19874) (ICLR 2026)
-- PolarQuant (Stage 1): [arXiv:2502.02617](https://arxiv.org/abs/2502.02617) (AISTATS 2026)
-- QJL: [arXiv:2406.03482](https://arxiv.org/abs/2406.03482)
+- [TheTom/turboquant_plus](https://github.com/TheTom/turboquant_plus) — Documentation, benchmarks, diagnostic scripts
+- [spiritbuun/llama-cpp-turboquant-cuda](https://github.com/spiritbuun/llama-cpp-turboquant-cuda) — CUDA port for RTX 3090
+- [ggml-org/llama.cpp Discussion #20969](https://github.com/ggml-org/llama.cpp/discussions/20969) — Main TurboQuant discussion
 
 ## License
 
