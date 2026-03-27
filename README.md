@@ -111,8 +111,7 @@ TURBO_LAYER_ADAPTIVE=1 ./build/bin/llama-cli -hf your-model-GGUF -ctk turbo3 -ct
 ## Hardware
 
 - **Tested**: RTX 5090 32GB, CUDA 12.8, SM120 (Blackwell)
-- **Should work**: Any NVIDIA GPU with SM >= 75 (Turing+) and Flash Attention support
-- **Not tested on older GPUs**: Use [spiritbuun's fork](https://github.com/spiritbuun/llama-cpp-turboquant-cuda) for RTX 3090/4090
+- **Should work**: SM75+ (Turing and newer), but only tested on SM120. Use [spiritbuun's fork](https://github.com/spiritbuun/llama-cpp-turboquant-cuda) for confirmed RTX 3090/4090 support
 
 Flash Attention is **required** for turbo types (auto-enabled when turbo K/V is detected).
 
