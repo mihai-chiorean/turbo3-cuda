@@ -75,8 +75,8 @@ static __global__ void flash_attn_ext_vec(
 #endif // GGML_USE_HIP
 
     constexpr int nthreads    = ggml_cuda_fattn_vec_get_nthreads_device();
-    constexpr int nthreads_KQ = (type_K == GGML_TYPE_F16 || type_K == GGML_TYPE_BF16 || type_K == GGML_TYPE_TURBO3_0 || type_K == GGML_TYPE_TURBO4_0) ? 128 / cpy_nb : nthreads_KQ_q;
-    constexpr int nthreads_V  = (type_V == GGML_TYPE_F16 || type_V == GGML_TYPE_BF16 || type_V == GGML_TYPE_TURBO3_0 || type_V == GGML_TYPE_TURBO4_0) ? 128 / cpy_nb : nthreads_V_q;
+    constexpr int nthreads_KQ = (type_K == GGML_TYPE_F16 || type_K == GGML_TYPE_BF16 || type_K == GGML_TYPE_TURBO3_0 || type_K == GGML_TYPE_TURBO4_0 || type_K == GGML_TYPE_TBQ4_0) ? 128 / cpy_nb : nthreads_KQ_q;
+    constexpr int nthreads_V  = (type_V == GGML_TYPE_F16 || type_V == GGML_TYPE_BF16 || type_V == GGML_TYPE_TURBO3_0 || type_V == GGML_TYPE_TURBO4_0 || type_V == GGML_TYPE_TBQ4_0) ? 128 / cpy_nb : nthreads_V_q;
 
     static_assert(WARP_SIZE % nthreads_KQ == 0, "bad nthreads_K");
     static_assert(WARP_SIZE % nthreads_V  == 0, "bad nthreads_V");
@@ -85,7 +85,7 @@ static __global__ void flash_attn_ext_vec(
     constexpr int V_cols_per_iter   = WARP_SIZE / nthreads_V;
 
     constexpr vec_dot_KQ_t vec_dot_KQ = get_vec_dot_KQ<type_K, D, nthreads_KQ>();
-    constexpr bool Q_q8_1 = type_K != GGML_TYPE_F16 && type_K != GGML_TYPE_BF16 && type_K != GGML_TYPE_TURBO3_0;
+    constexpr bool Q_q8_1 = type_K != GGML_TYPE_F16 && type_K != GGML_TYPE_BF16 && type_K != GGML_TYPE_TURBO3_0 && type_K != GGML_TYPE_TBQ4_0;
 #ifdef V_DOT2_F32_F16_AVAILABLE
     constexpr dequantize_V_t dequantize_V = get_dequantize_V<type_V, half,  V_rows_per_thread>();
 #else
@@ -234,6 +234,51 @@ static __global__ void flash_attn_ext_vec(
             }
         }
 #endif // V_DOT2_F32_F16_AVAILABLE
+    }
+
+
+    // -- TBQ4_0: Pre-rotate Q --
+    if constexpr (type_K == GGML_TYPE_TBQ4_0) {
+        static_assert(D == 128, "TBQ4_0 only supports head_dim=128");
+        float * Q_shared = (float *)KQ;
+#pragma unroll
+        for (int j = 0; j < ncols; ++j) {
+#pragma unroll
+            for (int i0 = 0; i0 < D/2; i0 += nthreads_KQ*cpy_ne) {
+                const int base = i0 + (threadIdx.x % nthreads_KQ)*cpy_ne;
+                if (base < D/2) {
+#pragma unroll
+                    for (int k = 0; k < cpy_ne; ++k) {
+                        const float2 qv = ((const float2 *)Q_reg[j])[i0/nthreads_KQ + k];
+                        Q_shared[(base + k)*2] = qv.x;
+                        Q_shared[(base + k)*2 + 1] = qv.y;
+                    }
+                }
+            }
+            __syncthreads();
+            float rotated_val = 0.0f;
+            if (tid < D) {
+                for (int k = 0; k < D; ++k)
+                    rotated_val += TBQ_ROTATION_128x128[tid * 128 + k] * Q_shared[k];
+            }
+            __syncthreads();
+            if (tid < D) Q_shared[tid] = rotated_val;
+            __syncthreads();
+#pragma unroll
+            for (int i0 = 0; i0 < D/2; i0 += nthreads_KQ*cpy_ne) {
+                const int base = i0 + (threadIdx.x % nthreads_KQ)*cpy_ne;
+                if (base < D/2) {
+#pragma unroll
+                    for (int k = 0; k < cpy_ne; ++k) {
+                        float2 qv;
+                        qv.x = Q_shared[(base + k)*2];
+                        qv.y = Q_shared[(base + k)*2 + 1];
+                        ((float2 *)Q_reg[j])[i0/nthreads_KQ + k] = qv;
+                    }
+                }
+            }
+            __syncthreads();
+        }
     }
 
     const int k_VKQ_max = KV_max ? KV_max[sequence*gridDim.x + blockIdx.x] : ne11;
@@ -509,6 +554,18 @@ static __global__ void flash_attn_ext_vec(
                         dst_val += float(KQ[w*V_cols_per_iter*D + v*D + i0 + tid]);
                     }
                 }
+                // -- TBQ4_0: Inverse-rotate VKQ output --
+                if constexpr (type_V == GGML_TYPE_TBQ4_0) {
+                    float * rot_shared = (float *)KQ;
+                    rot_shared[i0 + tid] = dst_val;
+                    __syncthreads();
+                    float rotated = 0.0f;
+                    const int out_idx = i0 + tid;
+                    for (int i = 0; i < D; ++i)
+                        rotated += TBQ_ROTATION_128x128[i * 128 + out_idx] * rot_shared[i];
+                    dst_val = rotated;
+                    __syncthreads();
+                }
                 if (gridDim.y == 1) {
                     dst_val /= KQ_sum[j_VKQ];
                 }
@@ -625,3 +682,6 @@ EXTERN_DECL_FATTN_VEC_CASES(256, GGML_TYPE_Q5_1)
 EXTERN_DECL_FATTN_VEC_CASES(256, GGML_TYPE_Q8_0)
 EXTERN_DECL_FATTN_VEC_CASES(256, GGML_TYPE_BF16)
 EXTERN_DECL_FATTN_VEC_CASES(256, GGML_TYPE_TURBO3_0)
+
+// TBQ4_0 only supports D=128
+extern DECL_FATTN_VEC_CASE(128, GGML_TYPE_TBQ4_0, GGML_TYPE_TBQ4_0);

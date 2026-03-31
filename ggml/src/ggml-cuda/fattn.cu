@@ -173,6 +173,23 @@ static void turbo_shadow_sync(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Shadow cache cleanup -- call on context teardown
+
+void ggml_cuda_turbo_shadow_cleanup(void * tensor_data) {
+    auto it = g_turbo_shadows.find(tensor_data);
+    if (it != g_turbo_shadows.end()) {
+        if (it->second.buf) { cudaFree(it->second.buf); }
+        g_turbo_shadows.erase(it);
+    }
+}
+
+void ggml_cuda_turbo_shadow_cleanup_all(void) {
+    for (auto & kv : g_turbo_shadows) {
+        if (kv.second.buf) { cudaFree(kv.second.buf); }
+    }
+    g_turbo_shadows.clear();
+}
+
 //  MMA / VEC / TILE / WMMA template instantiations (unchanged from upstream)
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -449,6 +466,13 @@ static void ggml_cuda_flash_attn_ext_vec(ggml_backend_cuda_context & ctx, ggml_t
     FATTN_VEC_CASES_ALL_D(GGML_TYPE_TURBO3_0, GGML_TYPE_Q8_0)
     FATTN_VEC_CASES_ALL_D(GGML_TYPE_TURBO4_0, GGML_TYPE_TURBO4_0)
 
+    // TBQ4_0 FA (only D=128)
+    FATTN_VEC_CASE(128, GGML_TYPE_TBQ4_0, GGML_TYPE_TBQ4_0)
+
+    // Asymmetric q8_0 K + turbo V
+    FATTN_VEC_CASES_ALL_D(GGML_TYPE_Q8_0, GGML_TYPE_TURBO3_0)
+    FATTN_VEC_CASES_ALL_D(GGML_TYPE_Q8_0, GGML_TYPE_TURBO4_0)
+
     // Asymmetric turbo3 K (shadowed to f16) + q8_0 V
     FATTN_VEC_CASES_ALL_D(GGML_TYPE_F16, GGML_TYPE_Q8_0)
 
@@ -552,6 +576,7 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
         case GGML_TYPE_BF16:
         case GGML_TYPE_TURBO3_0:
         case GGML_TYPE_TURBO4_0:
+        case GGML_TYPE_TBQ4_0:
             break;
         default:
             return BEST_FATTN_KERNEL_NONE;
@@ -565,7 +590,8 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
 
     // TurboQuant: only the vec kernel has turbo dequant support.
     if (K->type == GGML_TYPE_TURBO3_0 || V->type == GGML_TYPE_TURBO3_0 ||
-        K->type == GGML_TYPE_TURBO4_0 || V->type == GGML_TYPE_TURBO4_0) {
+        K->type == GGML_TYPE_TURBO4_0 || V->type == GGML_TYPE_TURBO4_0 ||
+        K->type == GGML_TYPE_TBQ4_0 || V->type == GGML_TYPE_TBQ4_0) {
         if (can_use_vector_kernel) {
             return BEST_FATTN_KERNEL_VEC;
         }
@@ -709,7 +735,7 @@ void ggml_cuda_flash_attn_ext(ggml_backend_cuda_context & ctx, ggml_tensor * dst
     // Set GGML_TURBO_DECODE_NATIVE=1 to bypass and use the native turbo3 vec kernel.
 
     static const bool turbo_native = (getenv("GGML_TURBO_DECODE_NATIVE") != nullptr);
-    if (turbo_native || Q->ne[3] != 1) {
+    if (true) { // always native -- shadow dequant broken (PPL 22.4 vs 8.0 native)
         switch (ggml_cuda_get_best_fattn_kernel(ggml_cuda_get_device(), dst)) {
             case BEST_FATTN_KERNEL_NONE:
                 GGML_ABORT("fatal error");
