@@ -554,8 +554,9 @@ static __global__ void flash_attn_ext_vec(
                         dst_val += float(KQ[w*V_cols_per_iter*D + v*D + i0 + tid]);
                     }
                 }
-                // -- TBQ4_0: Inverse-rotate VKQ output --
+                // -- TBQ4_0/TBQ3_0: Inverse-rotate VKQ output --
                 if constexpr (type_V == GGML_TYPE_TBQ4_0 || type_V == GGML_TYPE_TBQ3_0) {
+                    static_assert(D == 128, "TBQ V inverse rotation requires D==128");
                     float * rot_shared = (float *)KQ;
                     rot_shared[i0 + tid] = dst_val;
                     __syncthreads();
@@ -620,8 +621,12 @@ void ggml_cuda_flash_attn_ext_vec_case(ggml_backend_cuda_context & ctx, ggml_ten
     float logit_softcap;
     memcpy(&logit_softcap, (const float *) KQV->op_params + 2, sizeof(float));
 
-    // TBQ3_0/TBQ4_0 with inverse rotation: force ncols=1 during prefill
-    // The ncols=2 path has shared memory aliasing issues with rotation.
+    // TBQ3_0/TBQ4_0 with inverse rotation: force ncols=1 during prefill.
+    // The ncols=2 path reuses KQ[] shared memory for both Q columns, but the
+    // Q rotation and V inverse rotation also alias KQ[] as workspace. With ncols=2,
+    // the rotation would corrupt the other column's KQ data.
+    // TODO: Use dynamic shared memory for rotation workspace to enable ncols=2.
+    // This would roughly double prefill throughput for TBQ types.
     const bool force_ncols1 = (type_K == GGML_TYPE_TBQ3_0 || type_K == GGML_TYPE_TBQ4_0 ||
                                type_V == GGML_TYPE_TBQ3_0 || type_V == GGML_TYPE_TBQ4_0);
 

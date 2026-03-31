@@ -743,72 +743,23 @@ void ggml_cuda_flash_attn_ext(ggml_backend_cuda_context & ctx, ggml_tensor * dst
         return;
     }
 
-    // ── Turbo3 path: use persistent fp16 shadow cache ──
-    // Only dequant NEW KV positions since the last call. During decode this is
-    // typically 1 position (~2 KB) instead of bulk-dequanting the entire cache.
-    // Set GGML_TURBO_DECODE_NATIVE=1 to bypass and use the native turbo3 vec kernel.
-
-    static const bool turbo_native = (getenv("GGML_TURBO_DECODE_NATIVE") != nullptr);
-    if (true) { // always native -- shadow dequant broken (PPL 22.4 vs 8.0 native)
-        switch (ggml_cuda_get_best_fattn_kernel(ggml_cuda_get_device(), dst)) {
-            case BEST_FATTN_KERNEL_NONE:
-                GGML_ABORT("fatal error");
-            case BEST_FATTN_KERNEL_TILE:
-                ggml_cuda_flash_attn_ext_tile(ctx, dst);
-                break;
-            case BEST_FATTN_KERNEL_VEC:
-                ggml_cuda_flash_attn_ext_vec(ctx, dst);
-                break;
-            case BEST_FATTN_KERNEL_WMMA_F16:
-                ggml_cuda_flash_attn_ext_wmma_f16(ctx, dst);
-                break;
-            case BEST_FATTN_KERNEL_MMA_F16:
-                ggml_cuda_flash_attn_ext_mma_f16(ctx, dst);
-                break;
-        }
-        return;
+    // ── Turbo/TBQ path: native dispatch (shadow dequant path removed) ──
+    switch (ggml_cuda_get_best_fattn_kernel(ggml_cuda_get_device(), dst)) {
+        case BEST_FATTN_KERNEL_NONE:
+            GGML_ABORT("fatal error");
+        case BEST_FATTN_KERNEL_TILE:
+            ggml_cuda_flash_attn_ext_tile(ctx, dst);
+            break;
+        case BEST_FATTN_KERNEL_VEC:
+            ggml_cuda_flash_attn_ext_vec(ctx, dst);
+            break;
+        case BEST_FATTN_KERNEL_WMMA_F16:
+            ggml_cuda_flash_attn_ext_wmma_f16(ctx, dst);
+            break;
+        case BEST_FATTN_KERNEL_MMA_F16:
+            ggml_cuda_flash_attn_ext_mma_f16(ctx, dst);
+            break;
     }
-
-    cudaStream_t stream = ctx.stream();
-    const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
-
-    ggml_tensor K_f16, V_f16;
-    ggml_tensor * orig_k = dst->src[1];
-    ggml_tensor * orig_v = dst->src[2];
-
-    if (turbo_k) {
-        turbo_shadow_sync(K, g_turbo_shadows[K->data], K_f16, stream);
-        dst->src[1] = &K_f16;
-    }
-    if (turbo_v) {
-        turbo_shadow_sync(V, g_turbo_shadows[V->data], V_f16, stream);
-        dst->src[2] = &V_f16;
-    }
-
-    // Dispatch: prefill (Q->ne[1]>1) → MMA, decode (Q->ne[1]==1) → normal dispatch.
-    if (Q->ne[1] > 1 && turing_mma_available(cc)) {
-        ggml_cuda_flash_attn_ext_mma_f16(ctx, dst);
-    } else {
-        switch (ggml_cuda_get_best_fattn_kernel(ggml_cuda_get_device(), dst)) {
-            case BEST_FATTN_KERNEL_NONE:
-                GGML_ABORT("fatal error");
-            case BEST_FATTN_KERNEL_TILE:
-                ggml_cuda_flash_attn_ext_tile(ctx, dst);
-                break;
-            case BEST_FATTN_KERNEL_VEC:
-                ggml_cuda_flash_attn_ext_vec(ctx, dst);
-                break;
-            case BEST_FATTN_KERNEL_WMMA_F16:
-                ggml_cuda_flash_attn_ext_wmma_f16(ctx, dst);
-                break;
-            case BEST_FATTN_KERNEL_MMA_F16:
-                ggml_cuda_flash_attn_ext_mma_f16(ctx, dst);
-                break;
-        }
-    }
-
-    dst->src[1] = orig_k;
-    dst->src[2] = orig_v;
 }
 
 bool ggml_cuda_flash_attn_ext_supported(int device, const ggml_tensor * dst) {

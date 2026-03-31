@@ -7,16 +7,32 @@
 #include <cuda_fp16.h>
 #include <mutex>
 
+// Note: __device__ rather than __constant__ because 128*128*4=64KB is at the
+// CUDA constant memory limit. L2 cache handles reuse for the standalone dequant
+// path (not performance-critical). The FA path uses TBQ_ROTATION_128x128 instead.
 static __device__ float d_tbq_rotation[128 * 128];
 #include "tbq-rotation-128.h"
 
-static std::once_flag tbq_rotation_once;
+// Per-device rotation init: d_tbq_rotation is __device__ (per CUDA context),
+// so we must load it separately for each GPU in multi-GPU setups.
+static bool tbq_rotation_loaded[GGML_CUDA_MAX_DEVICES] = {};
+static std::mutex tbq_rotation_mutex;
+
 void tbq_ensure_rotation_loaded(cudaStream_t stream) {
-    std::call_once(tbq_rotation_once, [stream]() {
-        CUDA_CHECK(cudaMemcpyToSymbolAsync(d_tbq_rotation, TBQ_ROTATION_128x128,
-            128 * 128 * sizeof(float), 0, cudaMemcpyHostToDevice, stream));
-        CUDA_CHECK(cudaStreamSynchronize(stream));
-    });
+    int device;
+    CUDA_CHECK(cudaGetDevice(&device));
+    GGML_ASSERT(device >= 0 && device < GGML_CUDA_MAX_DEVICES);
+    if (tbq_rotation_loaded[device]) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(tbq_rotation_mutex);
+    if (tbq_rotation_loaded[device]) {
+        return;  // double-check after acquiring lock
+    }
+    CUDA_CHECK(cudaMemcpyToSymbolAsync(d_tbq_rotation, TBQ_ROTATION_128x128,
+        128 * 128 * sizeof(float), 0, cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+    tbq_rotation_loaded[device] = true;
 }
 
 static __constant__ float TBQ4_CENTROIDS[16] = {
@@ -119,18 +135,15 @@ static __global__ void dequantize_block_tbq4_0_nc_kernel(
     // Map flat block index back to output position
     const int64_t blocks_per_row = ne00 / QK_TBQ4;
     const int64_t out_elem = blk_flat * QK_TBQ4 + lane;
-    const int64_t i00 = out_elem % ne00;
     const int64_t i01 = (out_elem / ne00) % ne01;
     const int64_t i02 = (out_elem / (ne00*ne01)) % ne02;
     const int64_t i03 = out_elem / (ne00*ne01*ne02);
 
-    // Source block uses strided addressing
-    const int64_t src_base = i01*s01 + i02*s02 + i03*s03;
-    const int64_t src_blk_idx = src_base / QK_TBQ4 + (i00 / QK_TBQ4);
-    // All 128 threads in this CUDA block access the SAME TBQ4 block
-    const int64_t blk_start_i00 = (blk_flat % blocks_per_row) * QK_TBQ4;
-    const int64_t src_idx_base = blk_start_i00 + i01*s01 + i02*s02 + i03*s03;
-    const block_tbq4_0 * x = (const block_tbq4_0 *)vx + src_idx_base / QK_TBQ4;
+    // Source block: strides s01/s02/s03 are in block units (nb/type_size).
+    // Compute block offset directly following the upstream dequantize_block<> pattern.
+    const int64_t ibx0 = i01*s01 + i02*s02 + i03*s03;           // block offset from strides
+    const int64_t ib = ibx0 + (blk_flat % blocks_per_row);       // total block index
+    const block_tbq4_0 * x = (const block_tbq4_0 *)vx + ib;
 
     const float norm = __half2float(x->d);
     const float scale = 0.08838834764831845f;
@@ -369,9 +382,10 @@ static __global__ void dequantize_block_tbq3_0_nc_kernel(
     const int64_t i02 = (out_elem / (ne00*ne01)) % ne02;
     const int64_t i03 = out_elem / (ne00*ne01*ne02);
 
-    const int64_t blk_start_i00 = (blk_flat % blocks_per_row) * QK_TBQ3;
-    const int64_t src_idx_base = blk_start_i00 + i01*s01 + i02*s02 + i03*s03;
-    const block_tbq3_0 * x = (const block_tbq3_0 *)vx + src_idx_base / QK_TBQ3;
+    // Source block: strides s01/s02/s03 are in block units (nb/type_size).
+    const int64_t ibx0 = i01*s01 + i02*s02 + i03*s03;           // block offset from strides
+    const int64_t ib = ibx0 + (blk_flat % blocks_per_row);       // total block index
+    const block_tbq3_0 * x = (const block_tbq3_0 *)vx + ib;
 
     const float norm = __half2float(x->d);
     const float scale = 0.08838834764831845f;
