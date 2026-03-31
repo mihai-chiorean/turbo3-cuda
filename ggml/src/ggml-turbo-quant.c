@@ -24,10 +24,10 @@
 
 /* Optimal centroids from paper (scaled by 1/sqrt(d)) */
 /* 1-bit: ±sqrt(2/(pi*d)) */
-static const float CENTROIDS_1BIT[2] = { -0.070711f, 0.070711f };  /* for d=128 */
+// Unused - reserved for future 1-bit: static const float CENTROIDS_1BIT[2] = { -0.070711f, 0.070711f };  /* for d=128 */
 
 /* 2-bit: {±0.453, ±1.51} / sqrt(d) */
-static const float CENTROIDS_2BIT[4] = { -0.133462f, -0.039994f, 0.039994f, 0.133462f };
+// Unused - reserved for future 2-bit: static const float CENTROIDS_2BIT[4] = { -0.133462f, -0.039994f, 0.039994f, 0.133462f };
 
 /* 3-bit: Lloyd-Max for N(0, 1/128), pre-computed */
 static const float CENTROIDS_3BIT[8] = {
