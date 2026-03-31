@@ -2551,17 +2551,17 @@ size_t quantize_tbq4_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst
 
 // ============================================================================
 // TBQ3_0: TurboBlockQuant 3-bit (128-element blocks, rotation + Lloyd-Max)
-// 8 centroids for N(0,1), 3.125 bpw
+// 8 upstream-matched centroids for post-rotation distribution, 3.125 bpw
 // ============================================================================
 
 static const float TBQ3_CODEBOOK[8] = {
-    -1.5104f, -0.9816f, -0.6568f, -0.3177f,
-     0.3177f,  0.6568f,  0.9816f,  1.5104f,
+    -2.1520f, -1.3440f, -0.7560f, -0.2451f,
+     0.2451f,  0.7560f,  1.3440f,  2.1520f,
 };
 
 static const float TBQ3_BOUNDARIES[7] = {
-    -1.2460f, -0.8192f, -0.4872f, 0.0000f,
-     0.4872f,  0.8192f,  1.2460f,
+    -1.7480f, -1.0500f, -0.5006f, 0.0000f,
+     0.5006f,  1.0500f,  1.7480f,
 };
 
 static uint8_t tbq3_quantize_scalar(float val) {

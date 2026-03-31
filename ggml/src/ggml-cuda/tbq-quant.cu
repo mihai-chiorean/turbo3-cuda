@@ -268,17 +268,17 @@ void ggml_cuda_op_set_rows_tbq4(
 
 // ============================================================================
 // TBQ3_0: 3-bit TurboBlockQuant CUDA kernels
-// 8 Lloyd-Max centroids for N(0,1), 128-element blocks, 50 bytes/block = 3.125 bpw
+// 8 upstream-matched centroids for post-rotation distribution, 128-element blocks, 50 bytes/block = 3.125 bpw
 // ============================================================================
 
 static __constant__ float TBQ3_CENTROIDS[8] = {
-    -1.5104f, -0.9816f, -0.6568f, -0.3177f,
-     0.3177f,  0.6568f,  0.9816f,  1.5104f,
+    -2.1520f, -1.3440f, -0.7560f, -0.2451f,
+     0.2451f,  0.7560f,  1.3440f,  2.1520f,
 };
 
 static __constant__ float TBQ3_MIDPOINTS[7] = {
-    -1.2460f, -0.8192f, -0.4872f, 0.0000f,
-     0.4872f,  0.8192f,  1.2460f,
+    -1.7480f, -1.0500f, -0.5006f, 0.0000f,
+     0.5006f,  1.0500f,  1.7480f,
 };
 
 static __device__ __forceinline__ uint8_t tbq3_quantize_gpu(float val) {
