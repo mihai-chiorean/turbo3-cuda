@@ -908,6 +908,116 @@ static __device__ __forceinline__ void dequantize_V_tbq4_0(
     }
 }
 
+
+
+// ── TBQ3_0: FA KQ dot product (rotated domain) ──
+template<int D, int nthreads>
+static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_tbq3_0(
+    const char * __restrict__ K_c, const void * __restrict__ Q_v,
+    const int * __restrict__ Q_q8, const void * __restrict__ Q_ds_v) {
+
+    const block_tbq3_0 * K_tbq = (const block_tbq3_0 *) K_c;
+    GGML_UNUSED(Q_q8); GGML_UNUSED(Q_ds_v);
+
+    constexpr float C[8] = {
+        -1.5104f*0.08838834764831845f, -0.9816f*0.08838834764831845f, -0.6568f*0.08838834764831845f, -0.3177f*0.08838834764831845f,
+         0.3177f*0.08838834764831845f,  0.6568f*0.08838834764831845f,  0.9816f*0.08838834764831845f,  1.5104f*0.08838834764831845f,
+    };
+
+    constexpr int cpy_nb = ggml_cuda_get_max_cpy_bytes();
+    constexpr int cpy_ne = cpy_nb / 4;
+
+    float sum = 0.0f;
+    int prev_ib = -1;
+    float cn[8];
+
+#pragma unroll
+    for (int k_KQ_0 = 0; k_KQ_0 < D/2; k_KQ_0 += nthreads*cpy_ne) {
+        const int base = k_KQ_0 + (threadIdx.x % nthreads)*cpy_ne;
+        const int elem0 = base * 2;
+        const int ib = elem0 / QK_TBQ3;
+        const int j_start = elem0 % QK_TBQ3;
+
+        if (ib != prev_ib) {
+            const float norm = __half2float(K_tbq[ib].d);
+#pragma unroll
+            for (int c = 0; c < 8; c++) cn[c] = C[c] * norm;
+            prev_ib = ib;
+        }
+
+#pragma unroll
+        for (int k_KQ_1 = 0; k_KQ_1 < cpy_ne; ++k_KQ_1) {
+            const int elem = j_start + k_KQ_1 * 2;
+            // 3-bit unpack for two consecutive elements
+            int bit_offset0 = elem * 3;
+            int byte_idx0 = bit_offset0 / 8;
+            int bit_pos0 = bit_offset0 % 8;
+            uint16_t raw0 = (uint16_t)K_tbq[ib].qs[byte_idx0];
+            if (byte_idx0 + 1 < 48) raw0 |= (uint16_t)K_tbq[ib].qs[byte_idx0 + 1] << 8;
+            uint8_t idx0 = (uint8_t)((raw0 >> bit_pos0) & 0x7);
+
+            int bit_offset1 = (elem + 1) * 3;
+            int byte_idx1 = bit_offset1 / 8;
+            int bit_pos1 = bit_offset1 % 8;
+            uint16_t raw1 = (uint16_t)K_tbq[ib].qs[byte_idx1];
+            if (byte_idx1 + 1 < 48) raw1 |= (uint16_t)K_tbq[ib].qs[byte_idx1 + 1] << 8;
+            uint8_t idx1 = (uint8_t)((raw1 >> bit_pos1) & 0x7);
+
+            const float2 qf = ((const float2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1];
+            sum += cn[idx0] * qf.x + cn[idx1] * qf.y;
+        }
+    }
+    return sum;
+}
+
+// ── TBQ3_0: FA V dequantize (rotated domain) ──
+template <typename T, int ne>
+static __device__ __forceinline__ void dequantize_V_tbq3_0(
+        const void * __restrict__ vx, void * __restrict__ dst, const int64_t i0) {
+    const block_tbq3_0 * blocks = (const block_tbq3_0 *) vx;
+    constexpr float C[8] = {
+        -1.5104f*0.08838834764831845f, -0.9816f*0.08838834764831845f, -0.6568f*0.08838834764831845f, -0.3177f*0.08838834764831845f,
+         0.3177f*0.08838834764831845f,  0.6568f*0.08838834764831845f,  0.9816f*0.08838834764831845f,  1.5104f*0.08838834764831845f,
+    };
+#ifdef FP16_AVAILABLE
+    if constexpr (std::is_same_v<T, half>) {
+        half * out = (half *) dst;
+#pragma unroll
+        for (int l = 0; l < ne; ++l) {
+            const int elem = (int)(i0 + l);
+            const int blk = elem / QK_TBQ3;
+            const int e = elem % QK_TBQ3;
+            const float norm = __half2float(blocks[blk].d);
+            int bit_offset = e * 3;
+            int byte_idx = bit_offset / 8;
+            int bit_pos = bit_offset % 8;
+            uint16_t raw = (uint16_t)blocks[blk].qs[byte_idx];
+            if (byte_idx + 1 < 48) raw |= (uint16_t)blocks[blk].qs[byte_idx + 1] << 8;
+            uint8_t idx = (uint8_t)((raw >> bit_pos) & 0x7);
+            out[l] = __float2half(C[idx] * norm);
+        }
+    } else
+#endif
+    if constexpr (std::is_same_v<T, float>) {
+        float * out = (float *) dst;
+#pragma unroll
+        for (int l = 0; l < ne; ++l) {
+            const int elem = (int)(i0 + l);
+            const int blk = elem / QK_TBQ3;
+            const int e = elem % QK_TBQ3;
+            const float norm = __half2float(blocks[blk].d);
+            int bit_offset = e * 3;
+            int byte_idx = bit_offset / 8;
+            int bit_pos = bit_offset % 8;
+            uint16_t raw = (uint16_t)blocks[blk].qs[byte_idx];
+            if (byte_idx + 1 < 48) raw |= (uint16_t)blocks[blk].qs[byte_idx + 1] << 8;
+            uint8_t idx = (uint8_t)((raw >> bit_pos) & 0x7);
+            out[l] = C[idx] * norm;
+        }
+    } else {
+        static_assert(std::is_same_v<T, void>, "unsupported type");
+    }
+}
 template <ggml_type type_K, int D, int nthreads>
 constexpr __device__ vec_dot_KQ_t get_vec_dot_KQ() {
     if constexpr (type_K == GGML_TYPE_F16) {
@@ -918,6 +1028,8 @@ constexpr __device__ vec_dot_KQ_t get_vec_dot_KQ() {
         return vec_dot_fattn_vec_KQ_turbo4_0<D, nthreads>;
     } else if constexpr (type_K == GGML_TYPE_TBQ4_0) {
         return vec_dot_fattn_vec_KQ_tbq4_0<D, nthreads>;
+    } else if constexpr (type_K == GGML_TYPE_TBQ3_0) {
+        return vec_dot_fattn_vec_KQ_tbq3_0<D, nthreads>;
     } else if constexpr (type_K == GGML_TYPE_Q4_0) {
         return vec_dot_fattn_vec_KQ_q4_0<D, nthreads>;
     } else if constexpr (type_K == GGML_TYPE_Q4_1) {
@@ -946,6 +1058,8 @@ constexpr __device__ dequantize_V_t get_dequantize_V() {
         return dequantize_V_turbo4_0<T, ne>;
     } else if constexpr (type_V == GGML_TYPE_TBQ4_0) {
         return dequantize_V_tbq4_0<T, ne>;
+    } else if constexpr (type_V == GGML_TYPE_TBQ3_0) {
+        return dequantize_V_tbq3_0<T, ne>;
     } else if constexpr (type_V == GGML_TYPE_Q4_0) {
         return dequantize_V_q4_0<T, ne>;
     } else if constexpr (type_V == GGML_TYPE_Q4_1) {

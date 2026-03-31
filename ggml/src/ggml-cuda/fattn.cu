@@ -468,6 +468,15 @@ static void ggml_cuda_flash_attn_ext_vec(ggml_backend_cuda_context & ctx, ggml_t
 
     // TBQ4_0 FA (only D=128)
     FATTN_VEC_CASE(128, GGML_TYPE_TBQ4_0, GGML_TYPE_TBQ4_0)
+    FATTN_VEC_CASE(128, GGML_TYPE_Q8_0,   GGML_TYPE_TBQ4_0)
+    FATTN_VEC_CASE(128, GGML_TYPE_TBQ4_0, GGML_TYPE_Q4_0)
+    FATTN_VEC_CASE(128, GGML_TYPE_TBQ4_0, GGML_TYPE_F16)
+
+    // TBQ3_0 FA (only D=128)
+    FATTN_VEC_CASE(128, GGML_TYPE_TBQ3_0, GGML_TYPE_TBQ3_0)
+    FATTN_VEC_CASE(128, GGML_TYPE_TBQ4_0, GGML_TYPE_TBQ3_0)
+    FATTN_VEC_CASE(128, GGML_TYPE_Q8_0,   GGML_TYPE_TBQ3_0)
+    FATTN_VEC_CASE(128, GGML_TYPE_TBQ3_0, GGML_TYPE_Q8_0)
 
     // Asymmetric q8_0 K + turbo V
     FATTN_VEC_CASES_ALL_D(GGML_TYPE_Q8_0, GGML_TYPE_TURBO3_0)
@@ -555,7 +564,10 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
             (V->type == GGML_TYPE_F16 || V->type == GGML_TYPE_Q8_0));
         // Allow f16 K + q8_0 V (used by asymmetric turbo3 K shadow + q8_0 V)
         const bool f16_k_q8_v = (K->type == GGML_TYPE_F16 && V->type == GGML_TYPE_Q8_0);
-        if (!turbo_k_mixed && !f16_k_q8_v) {
+        // Allow TBQ4_0/TBQ3_0 mixed with q8_0/q4_0/f16
+        const bool tbq_mixed = (K->type == GGML_TYPE_TBQ4_0 || V->type == GGML_TYPE_TBQ4_0 ||
+                                K->type == GGML_TYPE_TBQ3_0 || V->type == GGML_TYPE_TBQ3_0);
+        if (!turbo_k_mixed && !f16_k_q8_v && !tbq_mixed) {
             return BEST_FATTN_KERNEL_NONE;
         }
     }
@@ -577,6 +589,7 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
         case GGML_TYPE_TURBO3_0:
         case GGML_TYPE_TURBO4_0:
         case GGML_TYPE_TBQ4_0:
+        case GGML_TYPE_TBQ3_0:
             break;
         default:
             return BEST_FATTN_KERNEL_NONE;
@@ -591,7 +604,8 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
     // TurboQuant: only the vec kernel has turbo dequant support.
     if (K->type == GGML_TYPE_TURBO3_0 || V->type == GGML_TYPE_TURBO3_0 ||
         K->type == GGML_TYPE_TURBO4_0 || V->type == GGML_TYPE_TURBO4_0 ||
-        K->type == GGML_TYPE_TBQ4_0 || V->type == GGML_TYPE_TBQ4_0) {
+        K->type == GGML_TYPE_TBQ4_0 || V->type == GGML_TYPE_TBQ4_0 ||
+        K->type == GGML_TYPE_TBQ3_0 || V->type == GGML_TYPE_TBQ3_0) {
         if (can_use_vector_kernel) {
             return BEST_FATTN_KERNEL_VEC;
         }

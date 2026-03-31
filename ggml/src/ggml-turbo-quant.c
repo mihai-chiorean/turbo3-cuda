@@ -2548,3 +2548,108 @@ size_t quantize_tbq4_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst
     }
     return nrows * row_size;
 }
+
+// ============================================================================
+// TBQ3_0: TurboBlockQuant 3-bit (128-element blocks, rotation + Lloyd-Max)
+// 8 centroids for N(0,1), 3.125 bpw
+// ============================================================================
+
+static const float TBQ3_CODEBOOK[8] = {
+    -1.5104f, -0.9816f, -0.6568f, -0.3177f,
+     0.3177f,  0.6568f,  0.9816f,  1.5104f,
+};
+
+static const float TBQ3_BOUNDARIES[7] = {
+    -1.2460f, -0.8192f, -0.4872f, 0.0000f,
+     0.4872f,  0.8192f,  1.2460f,
+};
+
+static uint8_t tbq3_quantize_scalar(float val) {
+    for (int i = 0; i < 7; i++) {
+        if (val < TBQ3_BOUNDARIES[i]) return (uint8_t)i;
+    }
+    return 7;
+}
+
+void quantize_row_tbq3_0_ref(const float * GGML_RESTRICT x, block_tbq3_0 * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_TBQ3 == 0);
+    const int64_t nb = k / QK_TBQ3;
+    const float scale_up = sqrtf((float)QK_TBQ3);  // sqrt(128)
+
+    for (int64_t b = 0; b < nb; b++) {
+        const float * xb = x + b * QK_TBQ3;
+        memset(y[b].qs, 0, sizeof(y[b].qs));
+
+        float norm_sq = 0.0f;
+        for (int j = 0; j < QK_TBQ3; j++) norm_sq += xb[j] * xb[j];
+        float norm = sqrtf(norm_sq);
+        if (norm < 1e-10f) norm = 1e-10f;
+
+        float unit[QK_TBQ3];
+        for (int j = 0; j < QK_TBQ3; j++) unit[j] = xb[j] / norm;
+
+        float rotated[QK_TBQ3];
+        tbq_rotate_forward_128(rotated, unit);
+
+        for (int j = 0; j < QK_TBQ3; j++) {
+            float val = rotated[j] * scale_up;
+            uint8_t idx = tbq3_quantize_scalar(val);
+            // 3-bit packing: element j at bit_offset = j*3
+            int bit_offset = j * 3;
+            int byte_idx = bit_offset / 8;
+            int bit_pos = bit_offset % 8;
+            y[b].qs[byte_idx] |= (idx << bit_pos) & 0xFF;
+            if (bit_pos > 5 && byte_idx + 1 < (int)sizeof(y[b].qs)) {
+                y[b].qs[byte_idx + 1] |= (idx >> (8 - bit_pos));
+            }
+        }
+        y[b].d = GGML_FP32_TO_FP16(norm);
+    }
+}
+
+void dequantize_row_tbq3_0(const block_tbq3_0 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_TBQ3 == 0);
+    const int64_t nb = k / QK_TBQ3;
+    const float scale_down = 1.0f / sqrtf((float)QK_TBQ3);  // 1/sqrt(128)
+
+    for (int64_t b = 0; b < nb; b++) {
+        const float norm = GGML_FP16_TO_FP32(x[b].d);
+
+        float rotated[QK_TBQ3];
+        for (int j = 0; j < QK_TBQ3; j++) {
+            int bit_offset = j * 3;
+            int byte_idx = bit_offset / 8;
+            int bit_pos = bit_offset % 8;
+            uint16_t raw = (uint16_t)x[b].qs[byte_idx];
+            if (byte_idx + 1 < (int)sizeof(x[b].qs)) {
+                raw |= (uint16_t)x[b].qs[byte_idx + 1] << 8;
+            }
+            uint8_t idx = (uint8_t)((raw >> bit_pos) & 0x7);
+            rotated[j] = TBQ3_CODEBOOK[idx] * scale_down;
+        }
+
+        float unit_approx[QK_TBQ3];
+        tbq_rotate_inverse_128(unit_approx, rotated);
+
+        for (int j = 0; j < QK_TBQ3; j++) {
+            y[b * QK_TBQ3 + j] = unit_approx[j] * norm;
+        }
+    }
+}
+
+size_t quantize_tbq3_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
+                       int64_t nrows, int64_t n_per_row, const float * imatrix) {
+    GGML_UNUSED(imatrix);
+    assert(n_per_row % QK_TBQ3 == 0);
+
+    size_t row_size = (n_per_row / QK_TBQ3) * sizeof(block_tbq3_0);
+    for (int64_t row = 0; row < nrows; row++) {
+        quantize_row_tbq3_0_ref(
+            src + row * n_per_row,
+            (block_tbq3_0 *)((char *)dst + row * row_size),
+            n_per_row
+        );
+    }
+    return nrows * row_size;
+}
+
