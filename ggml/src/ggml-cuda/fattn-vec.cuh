@@ -369,13 +369,13 @@ static __global__ void flash_attn_ext_vec(
             // Sparse V: skip V dequant+accumulate when all attention weights are negligible.
             // At 32K context, 90%+ of positions have weight < 1e-6. Skipping them eliminates
             // V memory reads + dequant compute for those positions. Zero quality impact.
-            // TheTom validated: 1e-4 through 1e-8 all give identical PPL.
+            // Threshold 1e-6 matches TheTom's validated value (far below fp16 precision).
             {
-                bool all_neg = true;
+                bool dominated = true;
                 for (int j = 0; j < ncols; ++j) {
-                    if (__hgt(__low2half(KQ_k[j]), __float2half(1e-4f))) { all_neg = false; break; }
+                    if (__hgt(__low2half(KQ_k[j]), __float2half(1e-6f))) { dominated = false; break; }
                 }
-                if (all_neg) continue;
+                if (dominated) continue;
             }
 
 #pragma unroll
@@ -409,12 +409,13 @@ static __global__ void flash_attn_ext_vec(
             }
 
             // Sparse V: skip V dequant+accumulate when all attention weights are negligible.
+            // Threshold 1e-6 matches TheTom's validated value.
             {
-                bool all_neg = true;
+                bool dominated = true;
                 for (int j = 0; j < ncols; ++j) {
-                    if (KQ_k[j] > 1e-4f) { all_neg = false; break; }
+                    if (KQ_k[j] >= 1e-6f) { dominated = false; break; }
                 }
-                if (all_neg) continue;
+                if (dominated) continue;
             }
 
 #pragma unroll

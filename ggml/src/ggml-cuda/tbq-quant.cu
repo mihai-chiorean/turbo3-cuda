@@ -230,6 +230,8 @@ static __global__ void kernel_set_rows_tbq4(
     const float scale_up = 11.3137085f; // sqrt(128)
 
     // Each lane writes 2 bytes (covering all 64 bytes = 128 elements)
+    // Also accumulate centroid^2 for reconstruction norm correction
+    float local_recon_sq = 0.0f;
     for (int b = 0; b < 2; b++) {
         int byte_idx = lane + b * 32;
         int elem0 = byte_idx * 2;
@@ -245,10 +247,24 @@ static __global__ void kernel_set_rows_tbq4(
         uint8_t idx1 = tbq4_quantize_gpu(sum1 * scale_up);
 
         dst_blk->qs[byte_idx] = idx0 | (idx1 << 4);
+
+        // Accumulate centroid^2 for reconstruction norm
+        float c0 = TBQ4_CENTROIDS[idx0];
+        float c1 = TBQ4_CENTROIDS[idx1];
+        local_recon_sq += c0 * c0 + c1 * c1;
     }
 
+    // Warp reduce reconstruction norm (32 lanes, each accumulated 4 elements)
+    for (int offset = 16; offset > 0; offset >>= 1)
+        local_recon_sq += __shfl_xor_sync(0xFFFFFFFF, local_recon_sq, offset);
+
+    // Norm correction: store original_norm / reconstruction_norm
+    // recon_norm in unit-vector domain = sqrt(sum(C^2)) / sqrt(128)
+    // corrected_d = block_norm / recon_norm
     if (lane == 0) {
-        dst_blk->d = __float2half(block_norm);
+        float recon_norm = sqrtf(local_recon_sq) * 0.08838834764831845f;  // * 1/sqrt(128)
+        float corrected = (recon_norm > 1e-10f) ? block_norm / recon_norm : block_norm;
+        dst_blk->d = __float2half(corrected);
     }
 }
 
@@ -512,8 +528,23 @@ static __global__ void kernel_set_rows_tbq3(
     }
     __syncwarp();
 
+    // Reconstruction norm correction for TBQ3
+    // Each of 32 lanes reads 4 indices from shared memory
+    float local_recon_sq3 = 0.0f;
+    for (int pass = 0; pass < 4; pass++) {
+        int elem = lane + pass * 32;
+        if (elem < 128) {
+            float c = TBQ3_CENTROIDS[s_indices[elem]];
+            local_recon_sq3 += c * c;
+        }
+    }
+    for (int offset = 16; offset > 0; offset >>= 1)
+        local_recon_sq3 += __shfl_xor_sync(0xFFFFFFFF, local_recon_sq3, offset);
+
     if (lane == 0) {
-        dst_blk->d = __float2half(block_norm);
+        float recon_norm = sqrtf(local_recon_sq3) * 0.08838834764831845f;  // * 1/sqrt(128)
+        float corrected = (recon_norm > 1e-10f) ? block_norm / recon_norm : block_norm;
+        dst_blk->d = __float2half(corrected);
     }
 }
 

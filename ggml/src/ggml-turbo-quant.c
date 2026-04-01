@@ -2492,6 +2492,7 @@ void quantize_row_tbq4_0_ref(const float * GGML_RESTRICT x, block_tbq4_0 * GGML_
         float rotated[QK_TBQ4];
         tbq_rotate_forward_128(rotated, unit);
 
+        float recon_sq = 0.0f;
         for (int j = 0; j < QK_TBQ4; j++) {
             float val = rotated[j] * scale_up;
             uint8_t idx = tbq4_quantize_scalar(val);
@@ -2500,8 +2501,17 @@ void quantize_row_tbq4_0_ref(const float * GGML_RESTRICT x, block_tbq4_0 * GGML_
             } else {
                 y[b].qs[j / 2] |= (idx << 4);
             }
+            // Accumulate centroid^2 for reconstruction norm
+            float c = TBQ4_CODEBOOK[idx];
+            recon_sq += c * c;
         }
-        y[b].d = GGML_FP32_TO_FP16(norm);
+        // Norm correction: store original_norm / reconstruction_norm
+        // recon_norm in unit-vector domain = sqrt(sum(C^2)) / sqrt(128)
+        {
+            float recon_norm = sqrtf(recon_sq) / scale_up;  // divide by sqrt(128)
+            float corrected = (recon_norm > 1e-10f) ? norm / recon_norm : norm;
+            y[b].d = GGML_FP32_TO_FP16(corrected);
+        }
     }
 }
 
@@ -2591,6 +2601,7 @@ void quantize_row_tbq3_0_ref(const float * GGML_RESTRICT x, block_tbq3_0 * GGML_
         float rotated[QK_TBQ3];
         tbq_rotate_forward_128(rotated, unit);
 
+        float recon_sq3 = 0.0f;
         for (int j = 0; j < QK_TBQ3; j++) {
             float val = rotated[j] * scale_up;
             uint8_t idx = tbq3_quantize_scalar(val);
@@ -2602,8 +2613,16 @@ void quantize_row_tbq3_0_ref(const float * GGML_RESTRICT x, block_tbq3_0 * GGML_
             if (bit_pos > 5 && byte_idx + 1 < (int)sizeof(y[b].qs)) {
                 y[b].qs[byte_idx + 1] |= (idx >> (8 - bit_pos));
             }
+            // Accumulate centroid^2 for reconstruction norm
+            float c = TBQ3_CODEBOOK[idx];
+            recon_sq3 += c * c;
         }
-        y[b].d = GGML_FP32_TO_FP16(norm);
+        // Norm correction: store original_norm / reconstruction_norm
+        {
+            float recon_norm = sqrtf(recon_sq3) / scale_up;  // divide by sqrt(128)
+            float corrected = (recon_norm > 1e-10f) ? norm / recon_norm : norm;
+            y[b].d = GGML_FP32_TO_FP16(corrected);
+        }
     }
 }
 
