@@ -948,20 +948,15 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_tbq3_0(
 #pragma unroll
         for (int k_KQ_1 = 0; k_KQ_1 < cpy_ne; ++k_KQ_1) {
             const int elem = j_start + k_KQ_1 * 2;
-            // 3-bit unpack for two consecutive elements
-            int bit_offset0 = elem * 3;
-            int byte_idx0 = bit_offset0 / 8;
-            int bit_pos0 = bit_offset0 % 8;
-            uint16_t raw0 = (uint16_t)K_tbq[ib].qs[byte_idx0];
-            if (byte_idx0 + 1 < 48) raw0 |= (uint16_t)K_tbq[ib].qs[byte_idx0 + 1] << 8;
-            uint8_t idx0 = (uint8_t)((raw0 >> bit_pos0) & 0x7);
-
-            int bit_offset1 = (elem + 1) * 3;
-            int byte_idx1 = bit_offset1 / 8;
-            int bit_pos1 = bit_offset1 % 8;
-            uint16_t raw1 = (uint16_t)K_tbq[ib].qs[byte_idx1];
-            if (byte_idx1 + 1 < 48) raw1 |= (uint16_t)K_tbq[ib].qs[byte_idx1 + 1] << 8;
-            uint8_t idx1 = (uint8_t)((raw1 >> bit_pos1) & 0x7);
+            // Single 16-bit load covers both 3-bit indices (6 bits needed,
+            // max bit_pos = 7 so at most bit 12 is accessed, fits in 16).
+            const int bit0 = elem * 3;
+            const int byte0 = bit0 / 8;
+            const int shift = bit0 % 8;
+            uint16_t raw;
+            memcpy(&raw, &K_tbq[ib].qs[byte0], sizeof(raw));
+            const uint8_t idx0 = (uint8_t)((raw >> shift)       & 0x7);
+            const uint8_t idx1 = (uint8_t)((raw >> (shift + 3)) & 0x7);
 
             const float2 qf = ((const float2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1];
             sum += cn[idx0] * qf.x + cn[idx1] * qf.y;
@@ -988,12 +983,12 @@ static __device__ __forceinline__ void dequantize_V_tbq3_0(
             const int blk = elem / QK_TBQ3;
             const int e = elem % QK_TBQ3;
             const float norm = __half2float(blocks[blk].d);
-            int bit_offset = e * 3;
-            int byte_idx = bit_offset / 8;
-            int bit_pos = bit_offset % 8;
-            uint16_t raw = (uint16_t)blocks[blk].qs[byte_idx];
-            if (byte_idx + 1 < 48) raw |= (uint16_t)blocks[blk].qs[byte_idx + 1] << 8;
-            uint8_t idx = (uint8_t)((raw >> bit_pos) & 0x7);
+            const int bit_off = e * 3;
+            const int byte0   = bit_off / 8;
+            const int shift   = bit_off % 8;
+            uint16_t raw;
+            memcpy(&raw, &blocks[blk].qs[byte0], sizeof(raw));
+            uint8_t idx = (uint8_t)((raw >> shift) & 0x7);
             out[l] = __float2half(C[idx] * norm);
         }
     } else
@@ -1006,12 +1001,12 @@ static __device__ __forceinline__ void dequantize_V_tbq3_0(
             const int blk = elem / QK_TBQ3;
             const int e = elem % QK_TBQ3;
             const float norm = __half2float(blocks[blk].d);
-            int bit_offset = e * 3;
-            int byte_idx = bit_offset / 8;
-            int bit_pos = bit_offset % 8;
-            uint16_t raw = (uint16_t)blocks[blk].qs[byte_idx];
-            if (byte_idx + 1 < 48) raw |= (uint16_t)blocks[blk].qs[byte_idx + 1] << 8;
-            uint8_t idx = (uint8_t)((raw >> bit_pos) & 0x7);
+            const int bit_off = e * 3;
+            const int byte0   = bit_off / 8;
+            const int shift   = bit_off % 8;
+            uint16_t raw;
+            memcpy(&raw, &blocks[blk].qs[byte0], sizeof(raw));
+            uint8_t idx = (uint8_t)((raw >> shift) & 0x7);
             out[l] = C[idx] * norm;
         }
     } else {
