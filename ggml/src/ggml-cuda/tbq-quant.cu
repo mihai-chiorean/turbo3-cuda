@@ -1,39 +1,13 @@
 /*
- * tbq-quant.cu -- TBQ4_0 CUDA kernels
+ * tbq-quant.cu -- TBQ4_0 / TBQ3_0 CUDA kernels
+ *
+ * Rotation is via 128-point FWHT (tbq-wht.cuh), not dense matrix.
  */
 
 #include "common.cuh"
 #include "ggml-common.h"
+#include "tbq-wht.cuh"
 #include <cuda_fp16.h>
-#include <mutex>
-
-// Note: __device__ rather than __constant__ because 128*128*4=64KB is at the
-// CUDA constant memory limit. L2 cache handles reuse for the standalone dequant
-// path (not performance-critical). The FA path uses TBQ_ROTATION_128x128 instead.
-static __device__ float d_tbq_rotation[128 * 128];
-#include "tbq-rotation-128.h"
-
-// Per-device rotation init: d_tbq_rotation is __device__ (per CUDA context),
-// so we must load it separately for each GPU in multi-GPU setups.
-static bool tbq_rotation_loaded[GGML_CUDA_MAX_DEVICES] = {};
-static std::mutex tbq_rotation_mutex;
-
-void tbq_ensure_rotation_loaded(cudaStream_t stream) {
-    int device;
-    CUDA_CHECK(cudaGetDevice(&device));
-    GGML_ASSERT(device >= 0 && device < GGML_CUDA_MAX_DEVICES);
-    if (tbq_rotation_loaded[device]) {
-        return;
-    }
-    std::lock_guard<std::mutex> lock(tbq_rotation_mutex);
-    if (tbq_rotation_loaded[device]) {
-        return;  // double-check after acquiring lock
-    }
-    CUDA_CHECK(cudaMemcpyToSymbolAsync(d_tbq_rotation, TBQ_ROTATION_128x128,
-        128 * 128 * sizeof(float), 0, cudaMemcpyHostToDevice, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
-    tbq_rotation_loaded[device] = true;
-}
 
 static __constant__ float TBQ4_CENTROIDS[16] = {
     -2.7326f, -2.0690f, -1.6180f, -1.2562f,
@@ -62,10 +36,10 @@ static __device__ __forceinline__ uint8_t tbq4_quantize_gpu(float val) {
     return idx;
 }
 
-// Dequant kernels -- block-level with inverse rotation
+// Dequant kernels -- block-level with inverse FWHT rotation
 // Each block of 128 threads handles one TBQ4 block (128 elements).
 // 1. Codebook lookup + scale by 1/sqrt(128) * norm  (rotated-domain values)
-// 2. Inverse rotation: x_j = sum_i R[i*128+j] * y_i  (R^T * y)
+// 2. Inverse FWHT rotation
 template<typename dst_t>
 static __global__ void dequantize_block_tbq4_0_kernel(
     const void * __restrict__ vx, dst_t * __restrict__ y, const int64_t k) {
@@ -89,42 +63,33 @@ static __global__ void dequantize_block_tbq4_0_kernel(
     }
     __syncthreads();
 
-    // Step 2: Inverse rotation: x_j = sum_i R[i][j] * rotated[i] = sum_i R[i*128+j] * rotated[i]
-    float val = 0.0f;
-    for (int i = 0; i < 128; i++) {
-        val += d_tbq_rotation[i * 128 + lane] * rotated[i];
-    }
-    val *= norm;
+    // Step 2: Inverse FWHT rotation (cooperative, 128 threads)
+    tbq_fwht_128_coop(rotated, lane, /*direction=*/1);
+    float val = rotated[lane] * norm;
 
     y[blk_id * QK_TBQ4 + lane] = (dst_t)val;
 }
 
 void dequantize_row_tbq4_0_fp16_cuda(const void * vx, half * y, int64_t k, cudaStream_t stream) {
-    tbq_ensure_rotation_loaded(stream);
     const int n_blocks = k / QK_TBQ4;
     dequantize_block_tbq4_0_kernel<half><<<n_blocks, 128, 0, stream>>>(vx, y, k);
 }
 void dequantize_row_tbq4_0_fp32_cuda(const void * vx, float * y, int64_t k, cudaStream_t stream) {
-    tbq_ensure_rotation_loaded(stream);
     const int n_blocks = k / QK_TBQ4;
     dequantize_block_tbq4_0_kernel<float><<<n_blocks, 128, 0, stream>>>(vx, y, k);
 }
 void dequantize_row_tbq4_0_bf16_cuda(const void * vx, nv_bfloat16 * y, int64_t k, cudaStream_t stream) {
-    tbq_ensure_rotation_loaded(stream);
     const int n_blocks = k / QK_TBQ4;
     dequantize_block_tbq4_0_kernel<nv_bfloat16><<<n_blocks, 128, 0, stream>>>(vx, y, k);
 }
 
-// NC dequant -- block-level with inverse rotation
-// Each CUDA block = one TBQ4 block (128 threads). Grid iterates over rows/batches.
+// NC dequant -- block-level with inverse FWHT rotation
 template<typename dst_t>
 static __global__ void dequantize_block_tbq4_0_nc_kernel(
     const void * __restrict__ vx, dst_t * __restrict__ y,
     const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
     const int64_t s01, const int64_t s02, const int64_t s03) {
 
-    // blockIdx.x = TBQ4 block index across the flattened tensor
-    // threadIdx.x = element within the TBQ4 block (0..127)
     const int64_t total_blocks = (ne00 * ne01 * ne02 * ne03) / QK_TBQ4;
     const int64_t blk_flat = blockIdx.x;
     if (blk_flat >= total_blocks) return;
@@ -132,17 +97,14 @@ static __global__ void dequantize_block_tbq4_0_nc_kernel(
     const int lane = threadIdx.x;
     if (lane >= QK_TBQ4) return;
 
-    // Map flat block index back to output position
     const int64_t blocks_per_row = ne00 / QK_TBQ4;
     const int64_t out_elem = blk_flat * QK_TBQ4 + lane;
     const int64_t i01 = (out_elem / ne00) % ne01;
     const int64_t i02 = (out_elem / (ne00*ne01)) % ne02;
     const int64_t i03 = out_elem / (ne00*ne01*ne02);
 
-    // Source block: strides s01/s02/s03 are in block units (nb/type_size).
-    // Compute block offset directly following the upstream dequantize_block<> pattern.
-    const int64_t ibx0 = i01*s01 + i02*s02 + i03*s03;           // block offset from strides
-    const int64_t ib = ibx0 + (blk_flat % blocks_per_row);       // total block index
+    const int64_t ibx0 = i01*s01 + i02*s02 + i03*s03;
+    const int64_t ib = ibx0 + (blk_flat % blocks_per_row);
     const block_tbq4_0 * x = (const block_tbq4_0 *)vx + ib;
 
     const float norm = __half2float(x->d);
@@ -155,11 +117,8 @@ static __global__ void dequantize_block_tbq4_0_nc_kernel(
     }
     __syncthreads();
 
-    float val = 0.0f;
-    for (int i = 0; i < 128; i++) {
-        val += d_tbq_rotation[i * 128 + lane] * rotated[i];
-    }
-    val *= norm;
+    tbq_fwht_128_coop(rotated, lane, /*direction=*/1);
+    float val = rotated[lane] * norm;
 
     y[out_elem] = (dst_t)val;
 }
@@ -167,26 +126,25 @@ static __global__ void dequantize_block_tbq4_0_nc_kernel(
 void dequantize_row_tbq4_0_fp16_nc_cuda(const void * vx, half * y,
     int64_t ne00, int64_t ne01, int64_t ne02, int64_t ne03,
     int64_t s01, int64_t s02, int64_t s03, cudaStream_t stream) {
-    tbq_ensure_rotation_loaded(stream);
     const int64_t n_blocks = (ne00*ne01*ne02*ne03) / QK_TBQ4;
     dequantize_block_tbq4_0_nc_kernel<half><<<(int)n_blocks, 128, 0, stream>>>(vx,y,ne00,ne01,ne02,ne03,s01,s02,s03);
 }
 void dequantize_row_tbq4_0_fp32_nc_cuda(const void * vx, float * y,
     int64_t ne00, int64_t ne01, int64_t ne02, int64_t ne03,
     int64_t s01, int64_t s02, int64_t s03, cudaStream_t stream) {
-    tbq_ensure_rotation_loaded(stream);
     const int64_t n_blocks = (ne00*ne01*ne02*ne03) / QK_TBQ4;
     dequantize_block_tbq4_0_nc_kernel<float><<<(int)n_blocks, 128, 0, stream>>>(vx,y,ne00,ne01,ne02,ne03,s01,s02,s03);
 }
 void dequantize_row_tbq4_0_bf16_nc_cuda(const void * vx, nv_bfloat16 * y,
     int64_t ne00, int64_t ne01, int64_t ne02, int64_t ne03,
     int64_t s01, int64_t s02, int64_t s03, cudaStream_t stream) {
-    tbq_ensure_rotation_loaded(stream);
     const int64_t n_blocks = (ne00*ne01*ne02*ne03) / QK_TBQ4;
     dequantize_block_tbq4_0_nc_kernel<nv_bfloat16><<<(int)n_blocks, 128, 0, stream>>>(vx,y,ne00,ne01,ne02,ne03,s01,s02,s03);
 }
 
-// SET_ROWS kernel
+// SET_ROWS kernel for TBQ4_0
+// 32 threads per block. Lane 0 performs serial FWHT on shared memory,
+// then all 32 lanes read rotated values for quantization.
 __launch_bounds__(32, 4)
 static __global__ void kernel_set_rows_tbq4(
     const float * __restrict__ src0,
@@ -227,42 +185,41 @@ static __global__ void kernel_set_rows_tbq4(
         s_unit[i] *= inv_norm;
     __syncwarp();
 
+    // Forward FWHT rotation in shared memory (lane 0 does it serially)
+    if (lane == 0) {
+        tbq_fwht_128_serial(s_unit, /*direction=*/0);
+    }
+    __syncwarp();
+
     const float scale_up = 11.3137085f; // sqrt(128)
 
     // Each lane writes 2 bytes (covering all 64 bytes = 128 elements)
-    // Also accumulate centroid^2 for reconstruction norm correction
     float local_recon_sq = 0.0f;
     for (int b = 0; b < 2; b++) {
         int byte_idx = lane + b * 32;
         int elem0 = byte_idx * 2;
         int elem1 = elem0 + 1;
 
-        float sum0 = 0.0f, sum1 = 0.0f;
-        for (int j = 0; j < 128; j++) {
-            float u = s_unit[j];
-            sum0 += d_tbq_rotation[elem0 * 128 + j] * u;
-            sum1 += d_tbq_rotation[elem1 * 128 + j] * u;
-        }
-        uint8_t idx0 = tbq4_quantize_gpu(sum0 * scale_up);
-        uint8_t idx1 = tbq4_quantize_gpu(sum1 * scale_up);
+        // Read rotated values from shared memory (already FWHT-transformed)
+        float r0 = s_unit[elem0] * scale_up;
+        float r1 = s_unit[elem1] * scale_up;
+
+        uint8_t idx0 = tbq4_quantize_gpu(r0);
+        uint8_t idx1 = tbq4_quantize_gpu(r1);
 
         dst_blk->qs[byte_idx] = idx0 | (idx1 << 4);
 
-        // Accumulate centroid^2 for reconstruction norm
         float c0 = TBQ4_CENTROIDS[idx0];
         float c1 = TBQ4_CENTROIDS[idx1];
         local_recon_sq += c0 * c0 + c1 * c1;
     }
 
-    // Warp reduce reconstruction norm (32 lanes, each accumulated 4 elements)
+    // Warp reduce reconstruction norm
     for (int offset = 16; offset > 0; offset >>= 1)
         local_recon_sq += __shfl_xor_sync(0xFFFFFFFF, local_recon_sq, offset);
 
-    // Norm correction: store original_norm / reconstruction_norm
-    // recon_norm in unit-vector domain = sqrt(sum(C^2)) / sqrt(128)
-    // corrected_d = block_norm / recon_norm
     if (lane == 0) {
-        float recon_norm = sqrtf(local_recon_sq) * 0.08838834764831845f;  // * 1/sqrt(128)
+        float recon_norm = sqrtf(local_recon_sq) * 0.08838834764831845f;
         float corrected = (recon_norm > 1e-10f) ? block_norm / recon_norm : block_norm;
         dst_blk->d = __float2half(corrected);
     }
@@ -285,8 +242,6 @@ void ggml_cuda_op_set_rows_tbq4(
 
     GGML_ASSERT(ne00 % QK_TBQ4 == 0);
     const int n_blocks_per_row = ne00 / QK_TBQ4;
-
-    tbq_ensure_rotation_loaded(ctx.stream());
 
     dim3 grid(ne01, n_blocks_per_row);
     dim3 block(32);
@@ -329,7 +284,7 @@ static __device__ __forceinline__ uint8_t tbq3_unpack(const uint8_t * qs, int j)
     return (uint8_t)((raw >> bit_pos) & 0x7);
 }
 
-// Standalone dequant -- block-level with inverse rotation (same as TBQ4_0 approach)
+// Standalone dequant for TBQ3_0 -- inverse FWHT rotation
 template<typename dst_t>
 static __global__ void dequantize_block_tbq3_0_kernel(
     const void * __restrict__ vx, dst_t * __restrict__ y, const int64_t k) {
@@ -352,28 +307,22 @@ static __global__ void dequantize_block_tbq3_0_kernel(
     }
     __syncthreads();
 
-    // Inverse rotation: x_j = sum_i R[i*128+j] * rotated[i]
-    float val = 0.0f;
-    for (int i = 0; i < 128; i++) {
-        val += d_tbq_rotation[i * 128 + lane] * rotated[i];
-    }
-    val *= norm;
+    // Inverse FWHT rotation (cooperative, 128 threads)
+    tbq_fwht_128_coop(rotated, lane, /*direction=*/1);
+    float val = rotated[lane] * norm;
 
     y[blk_id * QK_TBQ3 + lane] = (dst_t)val;
 }
 
 void dequantize_row_tbq3_0_fp16_cuda(const void * vx, half * y, int64_t k, cudaStream_t stream) {
-    tbq_ensure_rotation_loaded(stream);
     const int n_blocks = k / QK_TBQ3;
     dequantize_block_tbq3_0_kernel<half><<<n_blocks, 128, 0, stream>>>(vx, y, k);
 }
 void dequantize_row_tbq3_0_fp32_cuda(const void * vx, float * y, int64_t k, cudaStream_t stream) {
-    tbq_ensure_rotation_loaded(stream);
     const int n_blocks = k / QK_TBQ3;
     dequantize_block_tbq3_0_kernel<float><<<n_blocks, 128, 0, stream>>>(vx, y, k);
 }
 void dequantize_row_tbq3_0_bf16_cuda(const void * vx, nv_bfloat16 * y, int64_t k, cudaStream_t stream) {
-    tbq_ensure_rotation_loaded(stream);
     const int n_blocks = k / QK_TBQ3;
     dequantize_block_tbq3_0_kernel<nv_bfloat16><<<n_blocks, 128, 0, stream>>>(vx, y, k);
 }
@@ -398,9 +347,8 @@ static __global__ void dequantize_block_tbq3_0_nc_kernel(
     const int64_t i02 = (out_elem / (ne00*ne01)) % ne02;
     const int64_t i03 = out_elem / (ne00*ne01*ne02);
 
-    // Source block: strides s01/s02/s03 are in block units (nb/type_size).
-    const int64_t ibx0 = i01*s01 + i02*s02 + i03*s03;           // block offset from strides
-    const int64_t ib = ibx0 + (blk_flat % blocks_per_row);       // total block index
+    const int64_t ibx0 = i01*s01 + i02*s02 + i03*s03;
+    const int64_t ib = ibx0 + (blk_flat % blocks_per_row);
     const block_tbq3_0 * x = (const block_tbq3_0 *)vx + ib;
 
     const float norm = __half2float(x->d);
@@ -413,11 +361,8 @@ static __global__ void dequantize_block_tbq3_0_nc_kernel(
     }
     __syncthreads();
 
-    float val = 0.0f;
-    for (int i = 0; i < 128; i++) {
-        val += d_tbq_rotation[i * 128 + lane] * rotated[i];
-    }
-    val *= norm;
+    tbq_fwht_128_coop(rotated, lane, /*direction=*/1);
+    float val = rotated[lane] * norm;
 
     y[out_elem] = (dst_t)val;
 }
@@ -425,27 +370,24 @@ static __global__ void dequantize_block_tbq3_0_nc_kernel(
 void dequantize_row_tbq3_0_fp16_nc_cuda(const void * vx, half * y,
     int64_t ne00, int64_t ne01, int64_t ne02, int64_t ne03,
     int64_t s01, int64_t s02, int64_t s03, cudaStream_t stream) {
-    tbq_ensure_rotation_loaded(stream);
     const int64_t n_blocks = (ne00*ne01*ne02*ne03) / QK_TBQ3;
     dequantize_block_tbq3_0_nc_kernel<half><<<(int)n_blocks, 128, 0, stream>>>(vx,y,ne00,ne01,ne02,ne03,s01,s02,s03);
 }
 void dequantize_row_tbq3_0_fp32_nc_cuda(const void * vx, float * y,
     int64_t ne00, int64_t ne01, int64_t ne02, int64_t ne03,
     int64_t s01, int64_t s02, int64_t s03, cudaStream_t stream) {
-    tbq_ensure_rotation_loaded(stream);
     const int64_t n_blocks = (ne00*ne01*ne02*ne03) / QK_TBQ3;
     dequantize_block_tbq3_0_nc_kernel<float><<<(int)n_blocks, 128, 0, stream>>>(vx,y,ne00,ne01,ne02,ne03,s01,s02,s03);
 }
 void dequantize_row_tbq3_0_bf16_nc_cuda(const void * vx, nv_bfloat16 * y,
     int64_t ne00, int64_t ne01, int64_t ne02, int64_t ne03,
     int64_t s01, int64_t s02, int64_t s03, cudaStream_t stream) {
-    tbq_ensure_rotation_loaded(stream);
     const int64_t n_blocks = (ne00*ne01*ne02*ne03) / QK_TBQ3;
     dequantize_block_tbq3_0_nc_kernel<nv_bfloat16><<<(int)n_blocks, 128, 0, stream>>>(vx,y,ne00,ne01,ne02,ne03,s01,s02,s03);
 }
 
 // SET_ROWS kernel for TBQ3_0
-// Use shared memory for indices, then single-lane serial packing for correctness.
+// 32 threads per block. Lane 0 performs serial FWHT, then all lanes quantize + pack.
 __launch_bounds__(32, 4)
 static __global__ void kernel_set_rows_tbq3(
     const float * __restrict__ src0,
@@ -488,30 +430,29 @@ static __global__ void kernel_set_rows_tbq3(
         s_unit[i] *= inv_norm;
     __syncwarp();
 
+    // Forward FWHT rotation in shared memory (lane 0 does it serially)
+    if (lane == 0) {
+        tbq_fwht_128_serial(s_unit, /*direction=*/0);
+    }
+    __syncwarp();
+
     const float scale_up = 11.3137085f; // sqrt(128)
 
-    // Phase 1: Rotate and quantize all 128 elements into shared memory indices
+    // Phase 1: Quantize all 128 elements into shared memory indices
     for (int pass = 0; pass < 4; pass++) {
         int elem = lane + pass * 32;
         if (elem >= 128) break;
 
-        float sum = 0.0f;
-        for (int j = 0; j < 128; j++) {
-            sum += d_tbq_rotation[elem * 128 + j] * s_unit[j];
-        }
-        s_indices[elem] = tbq3_quantize_gpu(sum * scale_up);
+        float rotated_val = s_unit[elem] * scale_up;
+        s_indices[elem] = tbq3_quantize_gpu(rotated_val);
     }
     __syncwarp();
 
-    // Phase 2: Pack 3-bit indices into qs[] bytes using lane 0 (simple + correct)
+    // Phase 2: Pack 3-bit indices into qs[] bytes
     if (lane < 16) {
-        // Each of 16 lanes packs 3 bytes (= 8 indices worth of 3-bit data)
-        // Lane 0: bytes 0..2 (indices 0..7), Lane 1: bytes 3..5 (indices 8..15), etc.
-        // Total: 16 lanes * 3 bytes = 48 bytes, 16 * 8 = 128 indices
         int base_idx = lane * 8;
         int base_byte = lane * 3;
 
-        // 8 indices * 3 bits = 24 bits = 3 bytes exactly
         uint32_t bits = 0;
         for (int k = 0; k < 8; k++) {
             bits |= ((uint32_t)s_indices[base_idx + k]) << (k * 3);
@@ -529,7 +470,6 @@ static __global__ void kernel_set_rows_tbq3(
     __syncwarp();
 
     // Reconstruction norm correction for TBQ3
-    // Each of 32 lanes reads 4 indices from shared memory
     float local_recon_sq3 = 0.0f;
     for (int pass = 0; pass < 4; pass++) {
         int elem = lane + pass * 32;
@@ -542,7 +482,7 @@ static __global__ void kernel_set_rows_tbq3(
         local_recon_sq3 += __shfl_xor_sync(0xFFFFFFFF, local_recon_sq3, offset);
 
     if (lane == 0) {
-        float recon_norm = sqrtf(local_recon_sq3) * 0.08838834764831845f;  // * 1/sqrt(128)
+        float recon_norm = sqrtf(local_recon_sq3) * 0.08838834764831845f;
         float corrected = (recon_norm > 1e-10f) ? block_norm / recon_norm : block_norm;
         dst_blk->d = __float2half(corrected);
     }
@@ -565,8 +505,6 @@ void ggml_cuda_op_set_rows_tbq3(
 
     GGML_ASSERT(ne00 % QK_TBQ3 == 0);
     const int n_blocks_per_row = ne00 / QK_TBQ3;
-
-    tbq_ensure_rotation_loaded(ctx.stream());
 
     dim3 grid(ne01, n_blocks_per_row);
     dim3 block(32);

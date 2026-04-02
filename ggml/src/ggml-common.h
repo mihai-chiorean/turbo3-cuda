@@ -306,8 +306,8 @@ static_assert(sizeof(block_tbq4_0) == sizeof(ggml_half) + QK_TBQ4 / 2, "wrong tb
 
 #define QK_TBQ3 128
 typedef struct {
-    ggml_half  d;                      //  2 bytes: block norm
     uint8_t    qs[QK_TBQ3 * 3 / 8];   // 48 bytes: 3-bit packed codebook indices
+    ggml_half  d;                      //  2 bytes: block norm
 } block_tbq3_0;                        // 50 bytes / 128 values = 3.125 bpw
 static_assert(sizeof(block_tbq3_0) == sizeof(ggml_half) + QK_TBQ3 * 3 / 8, "wrong tbq3_0 block size/padding");
 

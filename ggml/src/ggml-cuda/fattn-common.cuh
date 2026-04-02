@@ -3,7 +3,7 @@
 #include "common.cuh"
 #include "convert.cuh"
 #include "vecdotq.cuh"
-#include "tbq-rotation-128.h"
+#include "tbq-wht.cuh"
 
 #include <cstdint>
 

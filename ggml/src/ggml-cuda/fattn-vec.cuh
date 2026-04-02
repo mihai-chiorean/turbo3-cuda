@@ -256,13 +256,10 @@ static __global__ void flash_attn_ext_vec(
                 }
             }
             __syncthreads();
-            float rotated_val = 0.0f;
+            // Forward FWHT rotation (cooperative, 128 threads)
             if (tid < D) {
-                for (int k = 0; k < D; ++k)
-                    rotated_val += TBQ_ROTATION_128x128[tid * 128 + k] * Q_shared[k];
+                tbq_fwht_128_coop(Q_shared, tid, /*direction=*/0);
             }
-            __syncthreads();
-            if (tid < D) Q_shared[tid] = rotated_val;
             __syncthreads();
 #pragma unroll
             for (int i0 = 0; i0 < D/2; i0 += nthreads_KQ*cpy_ne) {
@@ -555,17 +552,14 @@ static __global__ void flash_attn_ext_vec(
                         dst_val += float(KQ[w*V_cols_per_iter*D + v*D + i0 + tid]);
                     }
                 }
-                // -- TBQ4_0/TBQ3_0: Inverse-rotate VKQ output --
+                // -- TBQ4_0/TBQ3_0: Inverse-rotate VKQ output via FWHT --
                 if constexpr (type_V == GGML_TYPE_TBQ4_0 || type_V == GGML_TYPE_TBQ3_0) {
                     static_assert(D == 128, "TBQ V inverse rotation requires D==128");
                     float * rot_shared = (float *)KQ;
                     rot_shared[i0 + tid] = dst_val;
                     __syncthreads();
-                    float rotated = 0.0f;
-                    const int out_idx = i0 + tid;
-                    for (int i = 0; i < D; ++i)
-                        rotated += TBQ_ROTATION_128x128[i * 128 + out_idx] * rot_shared[i];
-                    dst_val = rotated;
+                    tbq_fwht_128_coop(rot_shared, tid, /*direction=*/1);
+                    dst_val = rot_shared[i0 + tid];
                     __syncthreads();
                 }
                 if (gridDim.y == 1) {
@@ -622,16 +616,12 @@ void ggml_cuda_flash_attn_ext_vec_case(ggml_backend_cuda_context & ctx, ggml_ten
     float logit_softcap;
     memcpy(&logit_softcap, (const float *) KQV->op_params + 2, sizeof(float));
 
-    // TBQ3_0/TBQ4_0 with inverse rotation: force ncols=1 during prefill.
-    // The ncols=2 path reuses KQ[] shared memory for both Q columns, but the
-    // Q rotation and V inverse rotation also alias KQ[] as workspace. With ncols=2,
-    // the rotation would corrupt the other column's KQ data.
-    // TODO: Use dynamic shared memory for rotation workspace to enable ncols=2.
-    // This would roughly double prefill throughput for TBQ types.
-    const bool force_ncols1 = (type_K == GGML_TYPE_TBQ3_0 || type_K == GGML_TYPE_TBQ4_0 ||
-                               type_V == GGML_TYPE_TBQ3_0 || type_V == GGML_TYPE_TBQ4_0);
+    // FWHT rotation uses only 128 floats (512 bytes) of shared memory,
+    // so ncols=2 is safe -- each column is rotated sequentially via the
+    // existing for-j loop, and the V inverse rotation operates on the
+    // full KQ[] buffer which is large enough for both columns.
 
-    if (Q->ne[1] == 1 || force_ncols1) {
+    if (Q->ne[1] == 1) {
         constexpr int cols_per_block = 1;
         if (logit_softcap == 0.0f) {
             constexpr bool use_logit_softcap = false;

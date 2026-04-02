@@ -19,4 +19,3 @@ void ggml_cuda_op_set_rows_turbo4(ggml_backend_cuda_context & ctx, ggml_tensor *
 
 void ggml_cuda_op_set_rows_tbq4(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
 void ggml_cuda_op_set_rows_tbq3(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
-void tbq_ensure_rotation_loaded(cudaStream_t stream);
