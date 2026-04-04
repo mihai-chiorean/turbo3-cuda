@@ -3,7 +3,6 @@
 #include "common.cuh"
 #include "convert.cuh"
 #include "vecdotq.cuh"
-#include "tbq-wht.cuh"
 
 #include <cstdint>
 

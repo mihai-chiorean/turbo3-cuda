@@ -371,46 +371,6 @@ size_t quantize_turbo4_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT d
 }
 
 
-// WHT sign flip arrays (must match CUDA d_tbq_wht_signs1/2 in tbq-wht.cuh)
-static const float TBQ_WHT_SIGNS1[128] = {
-    -1, 1, 1,-1,-1, 1,-1, 1,-1,-1, 1, 1, 1, 1, 1, 1,
-     1,-1, 1,-1, 1,-1,-1, 1, 1, 1,-1, 1, 1,-1,-1,-1,
-    -1, 1, 1,-1, 1, 1,-1, 1,-1, 1, 1,-1,-1, 1,-1, 1,
-     1, 1, 1,-1,-1,-1,-1,-1, 1,-1, 1, 1, 1, 1,-1, 1,
-    -1,-1, 1,-1,-1,-1, 1,-1,-1,-1, 1,-1,-1,-1, 1, 1,
-     1,-1,-1, 1, 1, 1,-1,-1, 1, 1,-1, 1, 1,-1, 1,-1,
-    -1, 1, 1,-1, 1,-1, 1,-1, 1, 1, 1, 1,-1, 1,-1, 1,
-     1,-1, 1, 1,-1,-1,-1,-1,-1, 1, 1,-1, 1, 1,-1, 1
-};
-
-static const float TBQ_WHT_SIGNS2[128] = {
-     1, 1, 1, 1,-1, 1, 1,-1, 1,-1,-1,-1, 1,-1,-1,-1,
-     1, 1,-1,-1, 1,-1, 1,-1, 1,-1,-1, 1,-1, 1, 1, 1,
-     1, 1,-1,-1,-1, 1,-1,-1,-1,-1,-1,-1, 1, 1, 1,-1,
-     1,-1, 1, 1, 1,-1,-1, 1,-1,-1,-1,-1,-1,-1, 1, 1,
-     1,-1, 1,-1,-1,-1,-1, 1,-1, 1,-1, 1,-1,-1, 1, 1,
-    -1, 1,-1, 1, 1,-1, 1,-1,-1,-1,-1, 1,-1,-1, 1,-1,
-     1,-1, 1, 1, 1,-1,-1, 1,-1, 1,-1, 1, 1,-1,-1, 1,
-    -1, 1,-1, 1, 1,-1, 1,-1, 1,-1,-1,-1,-1,-1, 1,-1
-};
-
-// 128-point Fast Walsh-Hadamard Transform (in-place)
-static void tbq_fwht_128_inplace(float * x) {
-    for (int h = 1; h < 128; h *= 2) {
-        for (int i = 0; i < 128; i += h * 2) {
-            for (int j = i; j < i + h; j++) {
-                float a = x[j], b = x[j + h];
-                x[j] = a + b;
-                x[j + h] = a - b;
-            }
-        }
-    }
-    const float inv_sqrt_128 = 0.08838834764831845f;
-    for (int i = 0; i < 128; i++) x[i] *= inv_sqrt_128;
-}
-
-
-
 static const float TBQ4_CODEBOOK[16] = {
     -2.7326f, -2.0690f, -1.6180f, -1.2562f,
     -0.9424f, -0.6568f, -0.3881f, -0.1284f,
@@ -432,20 +392,6 @@ static uint8_t tbq4_quantize_scalar(float val) {
     return 15;
 }
 
-static void tbq_rotate_forward_128(float * y, const float * x) {
-    // Forward: y = signs2 * FWHT(signs1 * x) / sqrt(128)
-    for (int i = 0; i < 128; i++) y[i] = x[i] * TBQ_WHT_SIGNS1[i];
-    tbq_fwht_128_inplace(y);
-    for (int i = 0; i < 128; i++) y[i] *= TBQ_WHT_SIGNS2[i];
-}
-
-static void tbq_rotate_inverse_128(float * x, const float * y) {
-    // Inverse: x = signs1 * FWHT(signs2 * y) / sqrt(128)
-    for (int i = 0; i < 128; i++) x[i] = y[i] * TBQ_WHT_SIGNS2[i];
-    tbq_fwht_128_inplace(x);
-    for (int i = 0; i < 128; i++) x[i] *= TBQ_WHT_SIGNS1[i];
-}
-
 void quantize_row_tbq4_0_ref(const float * GGML_RESTRICT x, block_tbq4_0 * GGML_RESTRICT y, int64_t k) {
     assert(k % QK_TBQ4 == 0);
     const int64_t nb = k / QK_TBQ4;
@@ -463,12 +409,10 @@ void quantize_row_tbq4_0_ref(const float * GGML_RESTRICT x, block_tbq4_0 * GGML_
         float unit[QK_TBQ4];
         for (int j = 0; j < QK_TBQ4; j++) unit[j] = xb[j] / norm;
 
-        float rotated[QK_TBQ4];
-        tbq_rotate_forward_128(rotated, unit);
-
+        // Input is already rotated by upstream graph
         float recon_sq = 0.0f;
         for (int j = 0; j < QK_TBQ4; j++) {
-            float val = rotated[j] * scale_up;
+            float val = unit[j] * scale_up;
             uint8_t idx = tbq4_quantize_scalar(val);
             if (j % 2 == 0) {
                 y[b].qs[j / 2] = idx;
@@ -497,7 +441,7 @@ void dequantize_row_tbq4_0(const block_tbq4_0 * GGML_RESTRICT x, float * GGML_RE
     for (int64_t b = 0; b < nb; b++) {
         const float norm = GGML_FP16_TO_FP32(x[b].d);
 
-        float rotated[QK_TBQ4];
+        // Codebook lookup + scale (rotation handled by upstream graph)
         for (int j = 0; j < QK_TBQ4; j++) {
             uint8_t idx;
             if (j % 2 == 0) {
@@ -505,14 +449,7 @@ void dequantize_row_tbq4_0(const block_tbq4_0 * GGML_RESTRICT x, float * GGML_RE
             } else {
                 idx = (x[b].qs[j / 2] >> 4) & 0x0F;
             }
-            rotated[j] = TBQ4_CODEBOOK[idx] * scale_down;
-        }
-
-        float unit_approx[QK_TBQ4];
-        tbq_rotate_inverse_128(unit_approx, rotated);
-
-        for (int j = 0; j < QK_TBQ4; j++) {
-            y[b * QK_TBQ4 + j] = unit_approx[j] * norm;
+            y[b * QK_TBQ4 + j] = TBQ4_CODEBOOK[idx] * scale_down * norm;
         }
     }
 }
@@ -572,12 +509,10 @@ void quantize_row_tbq3_0_ref(const float * GGML_RESTRICT x, block_tbq3_0 * GGML_
         float unit[QK_TBQ3];
         for (int j = 0; j < QK_TBQ3; j++) unit[j] = xb[j] / norm;
 
-        float rotated[QK_TBQ3];
-        tbq_rotate_forward_128(rotated, unit);
-
+        // Input is already rotated by upstream graph
         float recon_sq3 = 0.0f;
         for (int j = 0; j < QK_TBQ3; j++) {
-            float val = rotated[j] * scale_up;
+            float val = unit[j] * scale_up;
             uint8_t idx = tbq3_quantize_scalar(val);
             // 3-bit packing: element j at bit_offset = j*3
             int bit_offset = j * 3;
@@ -608,7 +543,7 @@ void dequantize_row_tbq3_0(const block_tbq3_0 * GGML_RESTRICT x, float * GGML_RE
     for (int64_t b = 0; b < nb; b++) {
         const float norm = GGML_FP16_TO_FP32(x[b].d);
 
-        float rotated[QK_TBQ3];
+        // Codebook lookup + scale (rotation handled by upstream graph)
         for (int j = 0; j < QK_TBQ3; j++) {
             int bit_offset = j * 3;
             int byte_idx = bit_offset / 8;
@@ -618,14 +553,7 @@ void dequantize_row_tbq3_0(const block_tbq3_0 * GGML_RESTRICT x, float * GGML_RE
                 raw |= (uint16_t)x[b].qs[byte_idx + 1] << 8;
             }
             uint8_t idx = (uint8_t)((raw >> bit_pos) & 0x7);
-            rotated[j] = TBQ3_CODEBOOK[idx] * scale_down;
-        }
-
-        float unit_approx[QK_TBQ3];
-        tbq_rotate_inverse_128(unit_approx, rotated);
-
-        for (int j = 0; j < QK_TBQ3; j++) {
-            y[b * QK_TBQ3 + j] = unit_approx[j] * norm;
+            y[b * QK_TBQ3 + j] = TBQ3_CODEBOOK[idx] * scale_down * norm;
         }
     }
 }

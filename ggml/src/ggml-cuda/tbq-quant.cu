@@ -1,12 +1,11 @@
 /*
  * tbq-quant.cu -- TBQ4_0 / TBQ3_0 CUDA kernels
  *
- * Rotation is via 128-point FWHT (tbq-wht.cuh), not dense matrix.
+ * Pure codebook quantizer. Upstream handles Walsh-Hadamard rotation.
  */
 
 #include "common.cuh"
 #include "ggml-common.h"
-#include "tbq-wht.cuh"
 #include <cuda_fp16.h>
 
 static __constant__ float TBQ4_CENTROIDS[16] = {
@@ -55,17 +54,9 @@ static __global__ void dequantize_block_tbq4_0_kernel(
     const float norm = __half2float(x->d);
     const float scale = 0.08838834764831845f;  // 1/sqrt(128)
 
-    // Step 1: Codebook lookup in rotated domain
-    __shared__ float rotated[128];
-    {
-        uint8_t idx = (lane % 2 == 0) ? (x->qs[lane/2] & 0x0F) : ((x->qs[lane/2] >> 4) & 0x0F);
-        rotated[lane] = TBQ4_CENTROIDS[idx] * scale;
-    }
-    __syncthreads();
-
-    // Step 2: Inverse FWHT rotation (cooperative, 128 threads)
-    tbq_fwht_128_coop(rotated, lane, /*direction=*/1);
-    float val = rotated[lane] * norm;
+    // Codebook lookup + scale (rotation handled by upstream graph)
+    uint8_t idx = (lane % 2 == 0) ? (x->qs[lane/2] & 0x0F) : ((x->qs[lane/2] >> 4) & 0x0F);
+    float val = TBQ4_CENTROIDS[idx] * scale * norm;
 
     y[blk_id * QK_TBQ4 + lane] = (dst_t)val;
 }
@@ -110,15 +101,9 @@ static __global__ void dequantize_block_tbq4_0_nc_kernel(
     const float norm = __half2float(x->d);
     const float scale = 0.08838834764831845f;
 
-    __shared__ float rotated[128];
-    {
-        uint8_t idx = (lane%2==0) ? (x->qs[lane/2]&0x0F) : ((x->qs[lane/2]>>4)&0x0F);
-        rotated[lane] = TBQ4_CENTROIDS[idx] * scale;
-    }
-    __syncthreads();
-
-    tbq_fwht_128_coop(rotated, lane, /*direction=*/1);
-    float val = rotated[lane] * norm;
+    // Codebook lookup + scale (rotation handled by upstream graph)
+    uint8_t idx = (lane%2==0) ? (x->qs[lane/2]&0x0F) : ((x->qs[lane/2]>>4)&0x0F);
+    float val = TBQ4_CENTROIDS[idx] * scale * norm;
 
     y[out_elem] = (dst_t)val;
 }
@@ -185,22 +170,17 @@ static __global__ void kernel_set_rows_tbq4(
         s_unit[i] *= inv_norm;
     __syncwarp();
 
-    // Forward FWHT rotation in shared memory (lane 0 does it serially)
-    if (lane == 0) {
-        tbq_fwht_128_serial(s_unit, /*direction=*/0);
-    }
-    __syncwarp();
-
     const float scale_up = 11.3137085f; // sqrt(128)
 
     // Each lane writes 2 bytes (covering all 64 bytes = 128 elements)
+    // Input is already rotated by upstream graph
     float local_recon_sq = 0.0f;
     for (int b = 0; b < 2; b++) {
         int byte_idx = lane + b * 32;
         int elem0 = byte_idx * 2;
         int elem1 = elem0 + 1;
 
-        // Read rotated values from shared memory (already FWHT-transformed)
+        // Read normalized values from shared memory
         float r0 = s_unit[elem0] * scale_up;
         float r1 = s_unit[elem1] * scale_up;
 
@@ -300,16 +280,9 @@ static __global__ void dequantize_block_tbq3_0_kernel(
     const float norm = __half2float(x->d);
     const float scale = 0.08838834764831845f;  // 1/sqrt(128)
 
-    __shared__ float rotated[128];
-    {
-        uint8_t idx = tbq3_unpack(x->qs, lane);
-        rotated[lane] = TBQ3_CENTROIDS[idx] * scale;
-    }
-    __syncthreads();
-
-    // Inverse FWHT rotation (cooperative, 128 threads)
-    tbq_fwht_128_coop(rotated, lane, /*direction=*/1);
-    float val = rotated[lane] * norm;
+    // Codebook lookup + scale (rotation handled by upstream graph)
+    uint8_t idx = tbq3_unpack(x->qs, lane);
+    float val = TBQ3_CENTROIDS[idx] * scale * norm;
 
     y[blk_id * QK_TBQ3 + lane] = (dst_t)val;
 }
@@ -354,15 +327,9 @@ static __global__ void dequantize_block_tbq3_0_nc_kernel(
     const float norm = __half2float(x->d);
     const float scale = 0.08838834764831845f;
 
-    __shared__ float rotated[128];
-    {
-        uint8_t idx = tbq3_unpack(x->qs, lane);
-        rotated[lane] = TBQ3_CENTROIDS[idx] * scale;
-    }
-    __syncthreads();
-
-    tbq_fwht_128_coop(rotated, lane, /*direction=*/1);
-    float val = rotated[lane] * norm;
+    // Codebook lookup + scale (rotation handled by upstream graph)
+    uint8_t idx = tbq3_unpack(x->qs, lane);
+    float val = TBQ3_CENTROIDS[idx] * scale * norm;
 
     y[out_elem] = (dst_t)val;
 }
@@ -430,15 +397,10 @@ static __global__ void kernel_set_rows_tbq3(
         s_unit[i] *= inv_norm;
     __syncwarp();
 
-    // Forward FWHT rotation in shared memory (lane 0 does it serially)
-    if (lane == 0) {
-        tbq_fwht_128_serial(s_unit, /*direction=*/0);
-    }
-    __syncwarp();
-
     const float scale_up = 11.3137085f; // sqrt(128)
 
     // Phase 1: Quantize all 128 elements into shared memory indices
+    // Input is already rotated by upstream graph
     for (int pass = 0; pass < 4; pass++) {
         int elem = lane + pass * 32;
         if (elem >= 128) break;

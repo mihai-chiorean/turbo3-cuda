@@ -237,46 +237,6 @@ static __global__ void flash_attn_ext_vec(
     }
 
 
-    // -- TBQ4_0/TBQ3_0: Pre-rotate Q --
-    if constexpr (type_K == GGML_TYPE_TBQ4_0 || type_K == GGML_TYPE_TBQ3_0) {
-        static_assert(D == 128, "TBQ4_0/TBQ3_0 only supports head_dim=128");
-        float * Q_shared = (float *)KQ;
-#pragma unroll
-        for (int j = 0; j < ncols; ++j) {
-#pragma unroll
-            for (int i0 = 0; i0 < D/2; i0 += nthreads_KQ*cpy_ne) {
-                const int base = i0 + (threadIdx.x % nthreads_KQ)*cpy_ne;
-                if (base < D/2) {
-#pragma unroll
-                    for (int k = 0; k < cpy_ne; ++k) {
-                        const float2 qv = ((const float2 *)Q_reg[j])[i0/nthreads_KQ + k];
-                        Q_shared[(base + k)*2] = qv.x;
-                        Q_shared[(base + k)*2 + 1] = qv.y;
-                    }
-                }
-            }
-            __syncthreads();
-            // Forward FWHT rotation (cooperative, 128 threads)
-            if (tid < D) {
-                tbq_fwht_128_coop(Q_shared, tid, /*direction=*/0);
-            }
-            __syncthreads();
-#pragma unroll
-            for (int i0 = 0; i0 < D/2; i0 += nthreads_KQ*cpy_ne) {
-                const int base = i0 + (threadIdx.x % nthreads_KQ)*cpy_ne;
-                if (base < D/2) {
-#pragma unroll
-                    for (int k = 0; k < cpy_ne; ++k) {
-                        float2 qv;
-                        qv.x = Q_shared[(base + k)*2];
-                        qv.y = Q_shared[(base + k)*2 + 1];
-                        ((float2 *)Q_reg[j])[i0/nthreads_KQ + k] = qv;
-                    }
-                }
-            }
-            __syncthreads();
-        }
-    }
 
     const int k_VKQ_max = KV_max ? KV_max[sequence*gridDim.x + blockIdx.x] : ne11;
     K     += blockIdx.y*nthreads * nb11;
@@ -552,16 +512,6 @@ static __global__ void flash_attn_ext_vec(
                         dst_val += float(KQ[w*V_cols_per_iter*D + v*D + i0 + tid]);
                     }
                 }
-                // -- TBQ4_0/TBQ3_0: Inverse-rotate VKQ output via FWHT --
-                if constexpr (type_V == GGML_TYPE_TBQ4_0 || type_V == GGML_TYPE_TBQ3_0) {
-                    static_assert(D == 128, "TBQ V inverse rotation requires D==128");
-                    float * rot_shared = (float *)KQ;
-                    rot_shared[i0 + tid] = dst_val;
-                    __syncthreads();
-                    tbq_fwht_128_coop(rot_shared, tid, /*direction=*/1);
-                    dst_val = rot_shared[i0 + tid];
-                    __syncthreads();
-                }
                 if (gridDim.y == 1) {
                     dst_val /= KQ_sum[j_VKQ];
                 }
@@ -615,11 +565,6 @@ void ggml_cuda_flash_attn_ext_vec_case(ggml_backend_cuda_context & ctx, ggml_ten
 
     float logit_softcap;
     memcpy(&logit_softcap, (const float *) KQV->op_params + 2, sizeof(float));
-
-    // FWHT rotation uses only 128 floats (512 bytes) of shared memory,
-    // so ncols=2 is safe -- each column is rotated sequentially via the
-    // existing for-j loop, and the V inverse rotation operates on the
-    // full KQ[] buffer which is large enough for both columns.
 
     if (Q->ne[1] == 1) {
         constexpr int cols_per_block = 1;
