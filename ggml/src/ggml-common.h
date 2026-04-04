@@ -294,6 +294,23 @@ typedef struct {
 } block_turbo4_0;                       // 68 bytes total
 static_assert(sizeof(block_turbo4_0) == 2*sizeof(ggml_half) + QK_TURBO4*3/8 + QK_TURBO4/8, "wrong turbo4_0 block size/padding");
 
+// TurboBlockQuant 4-bit: 128-element blocks with rotation + 4-bit Lloyd-Max codebook
+// Per block: 4-bit indices (64 bytes) + norm(fp16) = 66 bytes per 128 values
+// = 4.125 bits/value. Uses a fixed 128x128 orthogonal rotation per head_dim group.
+#define QK_TBQ4 128
+typedef struct {
+    uint8_t    qs[QK_TBQ4 / 2];   // 64 bytes: 4-bit codebook indices (2 per byte)
+    ggml_half  d;                  //   2 bytes: block L2 norm
+} block_tbq4_0;                    // 66 bytes total
+static_assert(sizeof(block_tbq4_0) == sizeof(ggml_half) + QK_TBQ4 / 2, "wrong tbq4_0 block size/padding");
+
+#define QK_TBQ3 128
+typedef struct {
+    uint8_t    qs[QK_TBQ3 * 3 / 8];   // 48 bytes: 3-bit packed codebook indices
+    ggml_half  d;                      //  2 bytes: block norm
+} block_tbq3_0;                        // 50 bytes / 128 values = 3.125 bpw
+static_assert(sizeof(block_tbq3_0) == sizeof(ggml_half) + QK_TBQ3 * 3 / 8, "wrong tbq3_0 block size/padding");
+
 //
 // Super-block quantization structures
 //

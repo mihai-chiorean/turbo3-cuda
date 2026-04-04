@@ -24,10 +24,10 @@
 
 /* Optimal centroids from paper (scaled by 1/sqrt(d)) */
 /* 1-bit: ±sqrt(2/(pi*d)) */
-static const float CENTROIDS_1BIT[2] = { -0.070711f, 0.070711f };  /* for d=128 */
+// Unused - reserved for future 1-bit: static const float CENTROIDS_1BIT[2] = { -0.070711f, 0.070711f };  /* for d=128 */
 
 /* 2-bit: {±0.453, ±1.51} / sqrt(d) */
-static const float CENTROIDS_2BIT[4] = { -0.133462f, -0.039994f, 0.039994f, 0.133462f };
+// Unused - reserved for future 2-bit: static const float CENTROIDS_2BIT[4] = { -0.133462f, -0.039994f, 0.039994f, 0.133462f };
 
 /* 3-bit: Lloyd-Max for N(0, 1/128), pre-computed */
 static const float CENTROIDS_3BIT[8] = {
@@ -369,3 +369,208 @@ size_t quantize_turbo4_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT d
     }
     return nrows * row_size;
 }
+
+
+static const float TBQ4_CODEBOOK[16] = {
+    -2.7326f, -2.0690f, -1.6180f, -1.2562f,
+    -0.9424f, -0.6568f, -0.3881f, -0.1284f,
+     0.1284f,  0.3881f,  0.6568f,  0.9424f,
+     1.2562f,  1.6180f,  2.0690f,  2.7326f,
+};
+
+static const float TBQ4_BOUNDARIES[15] = {
+    -2.4008f, -1.8435f, -1.4371f, -1.0993f,
+    -0.7996f, -0.5225f, -0.2583f,  0.0000f,
+     0.2583f,  0.5225f,  0.7996f,  1.0993f,
+     1.4371f,  1.8435f,  2.4008f,
+};
+
+static uint8_t tbq4_quantize_scalar(float val) {
+    for (int i = 0; i < 15; i++) {
+        if (val < TBQ4_BOUNDARIES[i]) return (uint8_t)i;
+    }
+    return 15;
+}
+
+void quantize_row_tbq4_0_ref(const float * GGML_RESTRICT x, block_tbq4_0 * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_TBQ4 == 0);
+    const int64_t nb = k / QK_TBQ4;
+    const float scale_up = sqrtf((float)QK_TBQ4);
+
+    for (int64_t b = 0; b < nb; b++) {
+        const float * xb = x + b * QK_TBQ4;
+        memset(y[b].qs, 0, sizeof(y[b].qs));
+
+        float norm_sq = 0.0f;
+        for (int j = 0; j < QK_TBQ4; j++) norm_sq += xb[j] * xb[j];
+        float norm = sqrtf(norm_sq);
+        if (norm < 1e-10f) norm = 1e-10f;
+
+        float unit[QK_TBQ4];
+        for (int j = 0; j < QK_TBQ4; j++) unit[j] = xb[j] / norm;
+
+        // Input is already rotated by upstream graph
+        float recon_sq = 0.0f;
+        for (int j = 0; j < QK_TBQ4; j++) {
+            float val = unit[j] * scale_up;
+            uint8_t idx = tbq4_quantize_scalar(val);
+            if (j % 2 == 0) {
+                y[b].qs[j / 2] = idx;
+            } else {
+                y[b].qs[j / 2] |= (idx << 4);
+            }
+            // Accumulate centroid^2 for reconstruction norm
+            float c = TBQ4_CODEBOOK[idx];
+            recon_sq += c * c;
+        }
+        // Norm correction: store original_norm / reconstruction_norm
+        // recon_norm in unit-vector domain = sqrt(sum(C^2)) / sqrt(128)
+        {
+            float recon_norm = sqrtf(recon_sq) / scale_up;  // divide by sqrt(128)
+            float corrected = (recon_norm > 1e-10f) ? norm / recon_norm : norm;
+            y[b].d = GGML_FP32_TO_FP16(corrected);
+        }
+    }
+}
+
+void dequantize_row_tbq4_0(const block_tbq4_0 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_TBQ4 == 0);
+    const int64_t nb = k / QK_TBQ4;
+    const float scale_down = 1.0f / sqrtf((float)QK_TBQ4);
+
+    for (int64_t b = 0; b < nb; b++) {
+        const float norm = GGML_FP16_TO_FP32(x[b].d);
+
+        // Codebook lookup + scale (rotation handled by upstream graph)
+        for (int j = 0; j < QK_TBQ4; j++) {
+            uint8_t idx;
+            if (j % 2 == 0) {
+                idx = x[b].qs[j / 2] & 0x0F;
+            } else {
+                idx = (x[b].qs[j / 2] >> 4) & 0x0F;
+            }
+            y[b * QK_TBQ4 + j] = TBQ4_CODEBOOK[idx] * scale_down * norm;
+        }
+    }
+}
+
+size_t quantize_tbq4_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
+                       int64_t nrows, int64_t n_per_row, const float * imatrix) {
+    GGML_UNUSED(imatrix);
+    assert(n_per_row % QK_TBQ4 == 0);
+
+    size_t row_size = (n_per_row / QK_TBQ4) * sizeof(block_tbq4_0);
+    for (int64_t row = 0; row < nrows; row++) {
+        quantize_row_tbq4_0_ref(
+            src + row * n_per_row,
+            (block_tbq4_0 *)((char *)dst + row * row_size),
+            n_per_row
+        );
+    }
+    return nrows * row_size;
+}
+
+// ============================================================================
+// TBQ3_0: TurboBlockQuant 3-bit (128-element blocks, rotation + Lloyd-Max)
+// 8 upstream-matched centroids for post-rotation distribution, 3.125 bpw
+// ============================================================================
+
+static const float TBQ3_CODEBOOK[8] = {
+    -2.1520f, -1.3440f, -0.7560f, -0.2451f,
+     0.2451f,  0.7560f,  1.3440f,  2.1520f,
+};
+
+static const float TBQ3_BOUNDARIES[7] = {
+    -1.7480f, -1.0500f, -0.5006f, 0.0000f,
+     0.5006f,  1.0500f,  1.7480f,
+};
+
+static uint8_t tbq3_quantize_scalar(float val) {
+    for (int i = 0; i < 7; i++) {
+        if (val < TBQ3_BOUNDARIES[i]) return (uint8_t)i;
+    }
+    return 7;
+}
+
+void quantize_row_tbq3_0_ref(const float * GGML_RESTRICT x, block_tbq3_0 * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_TBQ3 == 0);
+    const int64_t nb = k / QK_TBQ3;
+    const float scale_up = sqrtf((float)QK_TBQ3);  // sqrt(128)
+
+    for (int64_t b = 0; b < nb; b++) {
+        const float * xb = x + b * QK_TBQ3;
+        memset(y[b].qs, 0, sizeof(y[b].qs));
+
+        float norm_sq = 0.0f;
+        for (int j = 0; j < QK_TBQ3; j++) norm_sq += xb[j] * xb[j];
+        float norm = sqrtf(norm_sq);
+        if (norm < 1e-10f) norm = 1e-10f;
+
+        float unit[QK_TBQ3];
+        for (int j = 0; j < QK_TBQ3; j++) unit[j] = xb[j] / norm;
+
+        // Input is already rotated by upstream graph
+        float recon_sq3 = 0.0f;
+        for (int j = 0; j < QK_TBQ3; j++) {
+            float val = unit[j] * scale_up;
+            uint8_t idx = tbq3_quantize_scalar(val);
+            // 3-bit packing: element j at bit_offset = j*3
+            int bit_offset = j * 3;
+            int byte_idx = bit_offset / 8;
+            int bit_pos = bit_offset % 8;
+            y[b].qs[byte_idx] |= (idx << bit_pos) & 0xFF;
+            if (bit_pos > 5 && byte_idx + 1 < (int)sizeof(y[b].qs)) {
+                y[b].qs[byte_idx + 1] |= (idx >> (8 - bit_pos));
+            }
+            // Accumulate centroid^2 for reconstruction norm
+            float c = TBQ3_CODEBOOK[idx];
+            recon_sq3 += c * c;
+        }
+        // Norm correction: store original_norm / reconstruction_norm
+        {
+            float recon_norm = sqrtf(recon_sq3) / scale_up;  // divide by sqrt(128)
+            float corrected = (recon_norm > 1e-10f) ? norm / recon_norm : norm;
+            y[b].d = GGML_FP32_TO_FP16(corrected);
+        }
+    }
+}
+
+void dequantize_row_tbq3_0(const block_tbq3_0 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_TBQ3 == 0);
+    const int64_t nb = k / QK_TBQ3;
+    const float scale_down = 1.0f / sqrtf((float)QK_TBQ3);  // 1/sqrt(128)
+
+    for (int64_t b = 0; b < nb; b++) {
+        const float norm = GGML_FP16_TO_FP32(x[b].d);
+
+        // Codebook lookup + scale (rotation handled by upstream graph)
+        for (int j = 0; j < QK_TBQ3; j++) {
+            int bit_offset = j * 3;
+            int byte_idx = bit_offset / 8;
+            int bit_pos = bit_offset % 8;
+            uint16_t raw = (uint16_t)x[b].qs[byte_idx];
+            if (byte_idx + 1 < (int)sizeof(x[b].qs)) {
+                raw |= (uint16_t)x[b].qs[byte_idx + 1] << 8;
+            }
+            uint8_t idx = (uint8_t)((raw >> bit_pos) & 0x7);
+            y[b * QK_TBQ3 + j] = TBQ3_CODEBOOK[idx] * scale_down * norm;
+        }
+    }
+}
+
+size_t quantize_tbq3_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
+                       int64_t nrows, int64_t n_per_row, const float * imatrix) {
+    GGML_UNUSED(imatrix);
+    assert(n_per_row % QK_TBQ3 == 0);
+
+    size_t row_size = (n_per_row / QK_TBQ3) * sizeof(block_tbq3_0);
+    for (int64_t row = 0; row < nrows; row++) {
+        quantize_row_tbq3_0_ref(
+            src + row * n_per_row,
+            (block_tbq3_0 *)((char *)dst + row * row_size),
+            n_per_row
+        );
+    }
+    return nrows * row_size;
+}
+

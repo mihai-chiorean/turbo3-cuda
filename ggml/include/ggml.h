@@ -430,7 +430,9 @@ extern "C" {
         GGML_TYPE_NVFP4   = 40, // NVFP4 (4 blocks, E4M3 scale)
         GGML_TYPE_TURBO3_0 = 41, // TurboQuant 3-bit KV cache: 2-bit PolarQuant + 1-bit QJL
         GGML_TYPE_TURBO4_0 = 42, // TurboQuant 4-bit KV cache: 3-bit PolarQuant + 1-bit QJL
-        GGML_TYPE_COUNT   = 43,
+        GGML_TYPE_TBQ4_0  = 43, // TurboBlockQuant 4-bit: 128-element blocks, rotation + 4-bit codebook
+        GGML_TYPE_TBQ3_0  = 44, // TurboBlockQuant 3-bit: 128-element blocks, rotation + 3-bit codebook (3.125 bpw)
+        GGML_TYPE_COUNT   = 45,
     };
 
     // precision

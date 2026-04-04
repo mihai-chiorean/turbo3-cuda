@@ -75,8 +75,8 @@ static __global__ void flash_attn_ext_vec(
 #endif // GGML_USE_HIP
 
     constexpr int nthreads    = ggml_cuda_fattn_vec_get_nthreads_device();
-    constexpr int nthreads_KQ = (type_K == GGML_TYPE_F16 || type_K == GGML_TYPE_BF16 || type_K == GGML_TYPE_TURBO3_0 || type_K == GGML_TYPE_TURBO4_0) ? 128 / cpy_nb : nthreads_KQ_q;
-    constexpr int nthreads_V  = (type_V == GGML_TYPE_F16 || type_V == GGML_TYPE_BF16 || type_V == GGML_TYPE_TURBO3_0 || type_V == GGML_TYPE_TURBO4_0) ? 128 / cpy_nb : nthreads_V_q;
+    constexpr int nthreads_KQ = (type_K == GGML_TYPE_F16 || type_K == GGML_TYPE_BF16 || type_K == GGML_TYPE_TURBO3_0 || type_K == GGML_TYPE_TURBO4_0 || type_K == GGML_TYPE_TBQ4_0 || type_K == GGML_TYPE_TBQ3_0) ? 128 / cpy_nb : nthreads_KQ_q;
+    constexpr int nthreads_V  = (type_V == GGML_TYPE_F16 || type_V == GGML_TYPE_BF16 || type_V == GGML_TYPE_TURBO3_0 || type_V == GGML_TYPE_TURBO4_0 || type_V == GGML_TYPE_TBQ4_0 || type_V == GGML_TYPE_TBQ3_0) ? 128 / cpy_nb : nthreads_V_q;
 
     static_assert(WARP_SIZE % nthreads_KQ == 0, "bad nthreads_K");
     static_assert(WARP_SIZE % nthreads_V  == 0, "bad nthreads_V");
@@ -85,7 +85,7 @@ static __global__ void flash_attn_ext_vec(
     constexpr int V_cols_per_iter   = WARP_SIZE / nthreads_V;
 
     constexpr vec_dot_KQ_t vec_dot_KQ = get_vec_dot_KQ<type_K, D, nthreads_KQ>();
-    constexpr bool Q_q8_1 = type_K != GGML_TYPE_F16 && type_K != GGML_TYPE_BF16 && type_K != GGML_TYPE_TURBO3_0;
+    constexpr bool Q_q8_1 = type_K != GGML_TYPE_F16 && type_K != GGML_TYPE_BF16 && type_K != GGML_TYPE_TURBO3_0 && type_K != GGML_TYPE_TBQ4_0 && type_K != GGML_TYPE_TBQ3_0;
 #ifdef V_DOT2_F32_F16_AVAILABLE
     constexpr dequantize_V_t dequantize_V = get_dequantize_V<type_V, half,  V_rows_per_thread>();
 #else
@@ -236,6 +236,8 @@ static __global__ void flash_attn_ext_vec(
 #endif // V_DOT2_F32_F16_AVAILABLE
     }
 
+
+
     const int k_VKQ_max = KV_max ? KV_max[sequence*gridDim.x + blockIdx.x] : ne11;
     K     += blockIdx.y*nthreads * nb11;
     V     += blockIdx.y*nthreads * nb21;
@@ -324,13 +326,13 @@ static __global__ void flash_attn_ext_vec(
             // Sparse V: skip V dequant+accumulate when all attention weights are negligible.
             // At 32K context, 90%+ of positions have weight < 1e-6. Skipping them eliminates
             // V memory reads + dequant compute for those positions. Zero quality impact.
-            // TheTom validated: 1e-4 through 1e-8 all give identical PPL.
+            // Threshold 1e-6 matches TheTom's validated value (far below fp16 precision).
             {
-                bool all_neg = true;
+                bool dominated = true;
                 for (int j = 0; j < ncols; ++j) {
-                    if (__hgt(__low2half(KQ_k[j]), __float2half(1e-4f))) { all_neg = false; break; }
+                    if (__hgt(__low2half(KQ_k[j]), __float2half(1e-6f))) { dominated = false; break; }
                 }
-                if (all_neg) continue;
+                if (dominated) continue;
             }
 
 #pragma unroll
@@ -364,12 +366,13 @@ static __global__ void flash_attn_ext_vec(
             }
 
             // Sparse V: skip V dequant+accumulate when all attention weights are negligible.
+            // Threshold 1e-6 matches TheTom's validated value.
             {
-                bool all_neg = true;
+                bool dominated = true;
                 for (int j = 0; j < ncols; ++j) {
-                    if (KQ_k[j] > 1e-4f) { all_neg = false; break; }
+                    if (KQ_k[j] >= 1e-6f) { dominated = false; break; }
                 }
-                if (all_neg) continue;
+                if (dominated) continue;
             }
 
 #pragma unroll
@@ -625,3 +628,15 @@ EXTERN_DECL_FATTN_VEC_CASES(256, GGML_TYPE_Q5_1)
 EXTERN_DECL_FATTN_VEC_CASES(256, GGML_TYPE_Q8_0)
 EXTERN_DECL_FATTN_VEC_CASES(256, GGML_TYPE_BF16)
 EXTERN_DECL_FATTN_VEC_CASES(256, GGML_TYPE_TURBO3_0)
+
+// TBQ4_0 only supports D=128
+extern DECL_FATTN_VEC_CASE(128, GGML_TYPE_TBQ4_0, GGML_TYPE_TBQ4_0);
+extern DECL_FATTN_VEC_CASE(128, GGML_TYPE_Q8_0,  GGML_TYPE_TBQ4_0);
+extern DECL_FATTN_VEC_CASE(128, GGML_TYPE_TBQ4_0, GGML_TYPE_Q4_0);
+extern DECL_FATTN_VEC_CASE(128, GGML_TYPE_TBQ4_0, GGML_TYPE_F16);
+
+// TBQ3_0 (only D=128)
+extern DECL_FATTN_VEC_CASE(128, GGML_TYPE_TBQ3_0, GGML_TYPE_TBQ3_0);
+extern DECL_FATTN_VEC_CASE(128, GGML_TYPE_TBQ4_0, GGML_TYPE_TBQ3_0);
+extern DECL_FATTN_VEC_CASE(128, GGML_TYPE_Q8_0,   GGML_TYPE_TBQ3_0);
+extern DECL_FATTN_VEC_CASE(128, GGML_TYPE_TBQ3_0, GGML_TYPE_Q8_0);

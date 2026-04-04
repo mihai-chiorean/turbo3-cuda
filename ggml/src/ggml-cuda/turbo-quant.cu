@@ -308,7 +308,7 @@ static __constant__ float TURBO3_MIDPOINTS_QC[7] = {
      0.043589f,  0.091775f,  0.154259f
 };
 
-__launch_bounds__(256, 1)
+__launch_bounds__(32, 2)
 static __global__ void kernel_set_rows_turbo3(
     const float * __restrict__ src0,
     const int64_t * __restrict__ src1,
@@ -452,7 +452,7 @@ static __device__ __forceinline__ void turbo_fwht_128(float * x) {
     for (int i = 0; i < 128; i++) x[i] *= inv;
 }
 
-__launch_bounds__(256, 1)
+__launch_bounds__(32, 2)
 static __global__ void kernel_set_rows_turbo4(
     const float * __restrict__ src0,
     const int64_t * __restrict__ src1,
