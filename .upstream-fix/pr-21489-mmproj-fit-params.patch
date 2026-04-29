@@ -1,0 +1,450 @@
+From e6386c7560c072ffba2faf06adb39a838a4d5e96 Mon Sep 17 00:00:00 2001
+From: Xuan Son Nguyen <son@huggingface.co>
+Date: Sun, 5 Apr 2026 23:19:12 +0200
+Subject: [PATCH] mtmd: fit_params now take into account mmproj
+
+---
+ tools/mtmd/clip.cpp             |  43 +++++--------
+ tools/mtmd/clip.h               |   6 +-
+ tools/mtmd/mtmd.cpp             | 109 +++++++++++++++++++++++---------
+ tools/mtmd/mtmd.h               |   5 ++
+ tools/server/server-context.cpp |  38 +++++++----
+ 5 files changed, 129 insertions(+), 72 deletions(-)
+
+diff --git a/tools/mtmd/clip.cpp b/tools/mtmd/clip.cpp
+index 12517123e..eb6120700 100644
+--- a/tools/mtmd/clip.cpp
++++ b/tools/mtmd/clip.cpp
+@@ -162,8 +162,14 @@ struct clip_ctx {
+ 
+     bool debug_output_embeddings = false;
+ 
++    // for measuring memory usage
++    bool no_alloc = false;
++    size_t mem_weight = 0;
++    size_t mem_compute = 0;
++
+     clip_ctx(clip_context_params & ctx_params) {
+         flash_attn_type = ctx_params.flash_attn_type;
++        no_alloc = ctx_params.no_alloc;
+         backend_cpu = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
+         if (!backend_cpu) {
+             throw std::runtime_error("failed to initialize CPU backend");
+@@ -1530,6 +1536,8 @@ struct clip_model_loader {
+                 ggml_tensor * data_tensor = ggml_dup_tensor(ctx_clip.ctx_data.get(), cur);
+                 ggml_set_name(data_tensor, cur->name);
+                 cur = data_tensor;
++                // add to weight memory counter
++                ctx_clip.mem_weight += ggml_nbytes(cur);
+             }
+             return cur;
+         };
+@@ -2136,7 +2144,7 @@ struct clip_model_loader {
+         }
+ 
+         // load data
+-        {
++        if (!ctx_clip.no_alloc) {
+             std::vector<uint8_t> read_buf;
+ 
+             // alloc memory and offload data
+@@ -2270,9 +2278,11 @@ struct clip_model_loader {
+     static support_info_graph alloc_compute_meta(clip_ctx & ctx_clip, const clip_image_f32_batch & batch) {
+         ctx_clip.buf_compute_meta.resize(ctx_clip.max_nodes * ggml_tensor_overhead() + ggml_graph_overhead());
+ 
++        // TODO @ngxson : prevent alloc if no_alloc is set
+         ggml_cgraph * gf = clip_image_build_graph(&ctx_clip, batch);
+         ggml_backend_sched_reserve(ctx_clip.sched.get(), gf);
+ 
++        ctx_clip.mem_compute = 0;
+         for (size_t i = 0; i < ctx_clip.backend_ptrs.size(); ++i) {
+             ggml_backend_t backend = ctx_clip.backend_ptrs[i];
+             ggml_backend_buffer_type_t buft = ctx_clip.backend_buft[i];
+@@ -2282,6 +2292,7 @@ struct clip_model_loader {
+                         ggml_backend_buft_name(buft),
+                         size / 1024.0 / 1024.0);
+             }
++            ctx_clip.mem_compute += size;
+         }
+ 
+         const int n_splits = ggml_backend_sched_get_n_splits(ctx_clip.sched.get());
+@@ -3359,19 +3370,6 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
+     }
+ }
+ 
+-int clip_is_minicpmv(const struct clip_ctx * ctx) {
+-    // TODO: remove this function
+-    if (ctx->proj_type() == PROJECTOR_TYPE_MINICPMV) {
+-        return ctx->model.hparams.minicpmv_version;
+-    }
+-    return 0;
+-}
+-
+-bool clip_is_glm(const struct clip_ctx * ctx) {
+-    // TODO: remove this function
+-    return ctx->proj_type() == PROJECTOR_TYPE_GLM_EDGE;
+-}
+-
+ bool clip_is_llava(const struct clip_ctx * ctx) {
+     return ctx->model.hparams.has_llava_projector;
+ }
+@@ -3384,19 +3382,6 @@ bool clip_has_audio_encoder(const struct clip_ctx * ctx) {
+     return ctx->model.modality == CLIP_MODALITY_AUDIO;
+ }
+ 
+-bool clip_has_whisper_encoder(const struct clip_ctx * ctx) {
+-    switch (ctx->proj_type()) {
+-        case PROJECTOR_TYPE_ULTRAVOX:
+-        case PROJECTOR_TYPE_QWEN2A:
+-        case PROJECTOR_TYPE_GLMA:
+-        case PROJECTOR_TYPE_VOXTRAL:
+-        case PROJECTOR_TYPE_MUSIC_FLAMINGO:
+-            return true;
+-        default:
+-            return false;
+-    }
+-}
+-
+ bool clip_encode_float_image (struct clip_ctx * ctx, int n_threads, float * img, int h, int w, float * vec) {
+     clip_image_f32 clip_img;
+     clip_img.buf.resize(h * w * 3);
+@@ -3433,6 +3418,10 @@ const clip_hparams * clip_get_hparams(const struct clip_ctx * ctx) {
+     return &ctx->model.hparams;
+ }
+ 
++size_t clip_get_mem_usage(const struct clip_ctx * ctx) {
++    return ctx->mem_weight + ctx->mem_compute;
++}
++
+ //
+ // API for debugging
+ //
+diff --git a/tools/mtmd/clip.h b/tools/mtmd/clip.h
+index a859b3865..b18eaa793 100644
+--- a/tools/mtmd/clip.h
++++ b/tools/mtmd/clip.h
+@@ -40,6 +40,7 @@ struct clip_context_params {
+     bool warmup;
+     ggml_backend_sched_eval_callback cb_eval;
+     void * cb_eval_user_data;
++    bool no_alloc;
+ };
+ 
+ struct clip_init_result {
+@@ -102,8 +103,6 @@ struct ggml_tensor * clip_get_newline_tensor(const struct clip_ctx * ctx);
+ bool clip_image_encode      (struct clip_ctx * ctx, int n_threads, struct clip_image_f32 * img, float * vec);
+ bool clip_image_batch_encode(struct clip_ctx * ctx, int n_threads, const struct clip_image_f32_batch * imgs, float * vec);
+ 
+-int clip_is_minicpmv(const struct clip_ctx * ctx);
+-bool clip_is_glm(const struct clip_ctx * ctx);
+ bool clip_is_llava(const struct clip_ctx * ctx);
+ // note for contributor: this clip_is_(model) pattern is deprecated
+ //                       do NOT add new functions like this
+@@ -115,4 +114,5 @@ void clip_image_f32_batch_add_mel(struct clip_image_f32_batch * batch, int n_mel
+ 
+ bool clip_has_vision_encoder(const struct clip_ctx * ctx);
+ bool clip_has_audio_encoder(const struct clip_ctx * ctx);
+-bool clip_has_whisper_encoder(const struct clip_ctx * ctx);
++
++size_t clip_get_mem_usage(const struct clip_ctx * ctx);
+diff --git a/tools/mtmd/mtmd.cpp b/tools/mtmd/mtmd.cpp
+index 35b4396fd..c584050b5 100644
+--- a/tools/mtmd/mtmd.cpp
++++ b/tools/mtmd/mtmd.cpp
+@@ -21,6 +21,7 @@
+ #include <cstdio>
+ #include <cstdlib>
+ #include <cstring>
++#include <climits>
+ #include <vector>
+ 
+ // represents raw image data, layout is RGBRGBRGB...
+@@ -123,13 +124,13 @@ mtmd_context_params mtmd_context_params_default() {
+ struct mtmd_context {
+     struct clip_ctx * ctx_v; // vision
+     struct clip_ctx * ctx_a; // audio
+-    const struct llama_model * text_model;
+     std::vector<float> image_embd_v; // image embedding vector
+ 
+     bool print_timings;
+     int n_threads;
+     std::string media_marker;
+-    const int n_embd_text;
++    const int n_embd_text = -1; // -1 means llm context not provided, skip checking this
++    const llama_vocab * vocab = nullptr; // can be nullptr if text_model is not provided
+ 
+     // these are not token, but strings used to mark the beginning and end of image/audio embeddings
+     std::string img_beg;
+@@ -161,12 +162,13 @@ struct mtmd_context {
+ 
+     mtmd_context(const char * mmproj_fname,
+                    const llama_model * text_model,
+-                   const mtmd_context_params & ctx_params) :
+-        text_model   (text_model),
++                   const mtmd_context_params & ctx_params,
++                   bool no_alloc = false) :
+         print_timings(ctx_params.print_timings),
+         n_threads    (ctx_params.n_threads),
+         media_marker (ctx_params.media_marker),
+-        n_embd_text  (llama_model_n_embd_inp(text_model))
++        n_embd_text  (text_model ? llama_model_n_embd_inp(text_model) : -1),
++        vocab        (text_model ? llama_model_get_vocab(text_model) : nullptr)
+     {
+         if (std::string(ctx_params.image_marker) != MTMD_DEFAULT_IMAGE_MARKER) {
+             throw std::runtime_error("custom image_marker is not supported anymore, use media_marker instead");
+@@ -184,6 +186,7 @@ struct mtmd_context {
+             /* warmup            */ ctx_params.warmup,
+             /* cb_eval           */ ctx_params.cb_eval,
+             /* cb_eval_user_data */ ctx_params.cb_eval_user_data,
++            /* no_alloc          */ no_alloc,
+         };
+ 
+         auto res = clip_init(mmproj_fname, ctx_clip_params);
+@@ -207,7 +210,7 @@ struct mtmd_context {
+         // since we already validate n_embd of vision and audio mmproj,
+         // we can safely assume that they are the same
+         int n_embd_clip = clip_n_mmproj_embd(ctx_v ? ctx_v : ctx_a);
+-        if (n_embd_text != n_embd_clip) {
++        if (n_embd_text > 0 && n_embd_text != n_embd_clip) {
+             throw std::runtime_error(string_format(
+                 "mismatch between text model (n_embd = %d) and mmproj (n_embd = %d)\n"
+                 "hint: you may be using wrong mmproj\n",
+@@ -245,7 +248,7 @@ struct mtmd_context {
+                 } break;
+             case PROJECTOR_TYPE_MINICPMV:
+                 {
+-                    int minicpmv_version = clip_is_minicpmv(ctx_v);
++                    int minicpmv_version = clip_get_hparams(ctx_v)->minicpmv_version;
+                     if (minicpmv_version == 2) {
+                         // minicpmv 2.5 format:
+                         // <image> (overview) </image><slice><image> (slice) </image><image> (slice) </image>\n ... </slice>
+@@ -487,7 +490,11 @@ struct mtmd_context {
+ 
+ private:
+     llama_token lookup_token(const std::string & token_text) {
+-        const llama_vocab * vocab = llama_model_get_vocab(text_model);
++        if (vocab == nullptr) {
++            // TODO @ngxson : this case is currently hit by mtmd_get_memory_usage
++            // but we should reconsider this if this case is needed in other places in the future
++            return LLAMA_TOKEN_NULL;
++        }
+         const int n_vocab = llama_vocab_n_tokens(vocab);
+         for (int i = 0; i < n_vocab; i++) {
+             if (token_to_piece(vocab, i, true) == token_text) {
+@@ -498,6 +505,9 @@ private:
+     }
+ 
+     std::string token_to_piece(const llama_vocab * vocab, llama_token token, bool special) {
++        if (vocab == nullptr) {
++            throw std::runtime_error("llama_vocab is not provided");
++        }
+         std::string piece;
+         piece.resize(piece.capacity());  // using string internal cache, 15 bytes + '\n'
+         const int n_chars = llama_token_to_piece(vocab, token, &piece[0], piece.size(), 0, special);
+@@ -545,7 +555,7 @@ struct mtmd_tokenizer {
+         add_special   = text->add_special;
+         parse_special = text->parse_special;
+         input_text    = text->text;
+-        vocab         = llama_model_get_vocab(ctx->text_model);
++        vocab         = ctx->vocab;
+ 
+         // for compatibility, we convert image marker to media marker
+         string_replace_all(input_text, MTMD_DEFAULT_IMAGE_MARKER, ctx->media_marker);
+@@ -574,27 +584,29 @@ struct mtmd_tokenizer {
+             }
+         }
+ 
+-        if (add_special && llama_vocab_get_add_bos(vocab)) {
+-            // if first chunk is text, we add BOS token to first text chunk
+-            // otherwise, create a new text chunk with BOS token
+-            if (!cur.entries.empty() && cur.entries[0].type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
+-                // add BOS token to the beginning of first text chunk
+-                cur.entries[0].tokens_text.insert(cur.entries[0].tokens_text.begin(), llama_vocab_bos(vocab));
+-            } else {
+-                // create a new text chunk with BOS token at the beginning
+-                mtmd_input_chunk bos_chunk{
+-                    MTMD_INPUT_CHUNK_TYPE_TEXT,
+-                    {llama_vocab_bos(vocab)},
+-                    nullptr, // image tokens
+-                    nullptr, // audio tokens
+-                };
+-                cur.entries.insert(cur.entries.begin(), std::move(bos_chunk));
++        if (vocab != nullptr) {
++            if (add_special && llama_vocab_get_add_bos(vocab)) {
++                // if first chunk is text, we add BOS token to first text chunk
++                // otherwise, create a new text chunk with BOS token
++                if (!cur.entries.empty() && cur.entries[0].type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
++                    // add BOS token to the beginning of first text chunk
++                    cur.entries[0].tokens_text.insert(cur.entries[0].tokens_text.begin(), llama_vocab_bos(vocab));
++                } else {
++                    // create a new text chunk with BOS token at the beginning
++                    mtmd_input_chunk bos_chunk{
++                        MTMD_INPUT_CHUNK_TYPE_TEXT,
++                        {llama_vocab_bos(vocab)},
++                        nullptr, // image tokens
++                        nullptr, // audio tokens
++                    };
++                    cur.entries.insert(cur.entries.begin(), std::move(bos_chunk));
++                }
+             }
+-        }
+ 
+-        if (add_special && llama_vocab_get_add_eos(vocab)) {
+-            // if last chunk is text, we add EOS token to it
+-            add_text({llama_vocab_eos(vocab)});
++            if (add_special && llama_vocab_get_add_eos(vocab)) {
++                // if last chunk is text, we add EOS token to it
++                add_text({llama_vocab_eos(vocab)});
++            }
+         }
+ 
+         if (i_bm != bitmaps.size()) {
+@@ -609,6 +621,9 @@ struct mtmd_tokenizer {
+     }
+ 
+     void add_text(const std::string & txt, bool parse_special) {
++        if (vocab == nullptr) {
++            throw std::runtime_error("llama_vocab is not provided");
++        }
+         LOG_DBG("%s: %s\n", __func__, txt.c_str());
+         auto tokens = mtmd_tokenize_text_internal(vocab, txt, /* add_special */ false, parse_special);
+         add_text(tokens);
+@@ -885,10 +900,16 @@ struct mtmd_tokenizer {
+                const std::string & text,
+                             bool   add_special,
+                             bool   parse_special) {
++        if (vocab == nullptr) {
++            throw std::runtime_error("llama_vocab is not provided");
++        }
+         // upper limit for the number of tokens
+         int n_tokens = text.length() + 2 * add_special;
+         std::vector<llama_token> result(n_tokens);
+         n_tokens = llama_tokenize(vocab, text.data(), text.length(), result.data(), result.size(), add_special, parse_special);
++        if (n_tokens == std::numeric_limits<int32_t>::min()) {
++            throw std::runtime_error("Tokenization failed: input text too large, tokenization result exceeds int32_t limit");
++        }
+         if (n_tokens < 0) {
+             result.resize(-n_tokens);
+             int check = llama_tokenize(vocab, text.data(), text.length(), result.data(), result.size(), add_special, parse_special);
+@@ -950,8 +971,8 @@ int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens)
+     bool ok = false;
+ 
+     if (clip_is_llava(ctx_clip)
+-        || clip_is_minicpmv(ctx_clip)
+-        || clip_is_glm(ctx_clip)
++        || proj_type == PROJECTOR_TYPE_MINICPMV
++        || proj_type == PROJECTOR_TYPE_GLM_EDGE
+         || proj_type == PROJECTOR_TYPE_INTERNVL) {
+         // TODO @ngxson : llava does not support batched encoding ; this should be fixed inside clip_image_batch_encode()
+         const auto & entries = image_tokens->batch_f32.entries;
+@@ -1356,3 +1377,31 @@ void mtmd_debug_preprocess_audio(mtmd_context * ctx, const std::vector<float> &
+         }
+     }
+ }
++
++static void stub_log_callback(enum ggml_log_level, const char *, void *) {
++    // do nothing
++}
++
++size_t mtmd_get_memory_usage(const char * mmproj_fname,
++                             struct mtmd_context_params ctx_params) {
++    mtmd::context_ptr ctx;
++    auto saved_log_callback = g_logger_state.log_callback;
++    auto saved_log_user_data = g_logger_state.log_callback_user_data;
++    try {
++        mtmd_log_set(stub_log_callback, nullptr); // suppress logging
++        ctx.reset(new mtmd_context(mmproj_fname, nullptr, ctx_params));
++        mtmd_log_set(saved_log_callback, saved_log_user_data); // restore log callback
++        size_t total_mem = 0;
++        if (ctx->ctx_v) {
++            total_mem += clip_get_mem_usage(ctx->ctx_v);
++        }
++        if (ctx->ctx_a) {
++            total_mem += clip_get_mem_usage(ctx->ctx_a);
++        }
++        return total_mem;
++    } catch (const std::exception & e) {
++        mtmd_log_set(saved_log_callback, saved_log_user_data); // restore log callback
++        LOG_ERR("%s: error: %s\n", __func__, e.what());
++        return 0;
++    }
++}
+diff --git a/tools/mtmd/mtmd.h b/tools/mtmd/mtmd.h
+index ebb4a18fb..06599a934 100644
+--- a/tools/mtmd/mtmd.h
++++ b/tools/mtmd/mtmd.h
+@@ -231,6 +231,11 @@ MTMD_API float * mtmd_get_output_embd(mtmd_context * ctx);
+ // If this is not called, or NULL is supplied, everything is output on stderr.
+ MTMD_API void mtmd_log_set(ggml_log_callback log_callback, void * user_data);
+ 
++// Get memory usage of the current model in bytes
++// Note: this is an unstable API, used internally by fit_params; it may be removed or changed without deprecation
++MTMD_API size_t mtmd_get_memory_usage(const char * mmproj_fname,
++                                      struct mtmd_context_params ctx_params);
++
+ /////////////////////////////////////////
+ 
+ // test function, to be used in test-mtmd-c-api.c
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+index 5523f23b5..370929114 100644
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -639,6 +639,31 @@ private:
+ 
+         params_base = params;
+ 
++        std::string & mmproj_path = params_base.mmproj.path;
++        bool has_mmproj = !mmproj_path.empty();
++        mtmd_context_params mparams = mtmd_context_params_default();
++        if (has_mmproj) {
++            mparams.use_gpu          = params_base.mmproj_use_gpu;
++            mparams.print_timings    = false;
++            mparams.n_threads        = params_base.cpuparams.n_threads;
++            mparams.flash_attn_type  = params_base.flash_attn_type;
++            mparams.warmup           = params_base.warmup;
++            mparams.image_min_tokens = params_base.image_min_tokens;
++            mparams.image_max_tokens = params_base.image_max_tokens;
++        }
++
++        // optionally get the memory usage of mmproj
++        if (has_mmproj && params_base.fit_params) {
++            size_t mmproj_mem = mtmd_get_memory_usage(mmproj_path.c_str(), mparams);
++            if (mmproj_mem > 0) {
++                SRV_INF("[mtmd] estimated memory usage of mmproj is %.2f MiB\n", mmproj_mem / (1024.0 * 1024.0));
++            } else {
++                SRV_ERR("%s", "[mtmd] failed to get memory usage of mmproj\n");
++            }
++            GGML_ASSERT(!params_base.fit_params_target.empty());
++            params_base.fit_params_target[0] += mmproj_mem;
++        }
++
+         llama_init = common_init_from_params(params_base);
+ 
+         model = llama_init->model();
+@@ -690,22 +715,11 @@ private:
+             params_base.speculative.cparams_dft = common_context_params_to_llama(params_dft);
+         }
+ 
+-        std::string & mmproj_path = params_base.mmproj.path;
+-        if (!mmproj_path.empty()) {
++        if (has_mmproj) {
+             if (!is_resume) {
+                 mtmd_helper_log_set(common_log_default_callback, nullptr);
+             }
+ 
+-            mtmd_context_params mparams = mtmd_context_params_default();
+-
+-            mparams.use_gpu          = params_base.mmproj_use_gpu;
+-            mparams.print_timings    = false;
+-            mparams.n_threads        = params_base.cpuparams.n_threads;
+-            mparams.flash_attn_type  = params_base.flash_attn_type;
+-            mparams.warmup           = params_base.warmup;
+-            mparams.image_min_tokens = params_base.image_min_tokens;
+-            mparams.image_max_tokens = params_base.image_max_tokens;
+-
+             mctx = mtmd_init_from_file(mmproj_path.c_str(), model, mparams);
+             if (mctx == nullptr) {
+                 SRV_ERR("failed to load multimodal model, '%s'\n", mmproj_path.c_str());
+-- 
+2.43.0
+
